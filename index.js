@@ -1,68 +1,17 @@
-require('dotenv').config();
-const express = require('express');
-const axios = require('axios');
-const app = express();
-app.use(express.json());
-
-const FEISHU_APP_ID = process.env.FEISHU_APP_ID;
-const FEISHU_APP_SECRET = process.env.FEISHU_APP_SECRET;
-const BITABLE_APP_TOKEN = process.env.BITABLE_APP_TOKEN;
-const BITABLE_TABLE_ID = process.env.BITABLE_TABLE_ID;
-const LEADER_USER_ID = process.env.LEADER_USER_ID;
-
-// ─── Helpers ────────────────────────────────────────────────────
-async function getTenantToken() {
-  const res = await axios.post('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
-    app_id: FEISHU_APP_ID,
-    app_secret: FEISHU_APP_SECRET
-  });
-  return res.data.tenant_access_token;
-}
-
-function getFieldText(val) {
-  if (!val) return 'N/A';
-  if (typeof val === 'string') return val;
-  if (Array.isArray(val)) {
-    if (val[0]?.text) return val.map(v => v.text).join(', ');
-    if (val[0]?.name) return val.map(v => v.name).join(', ');
-    if (val[0]?.id) return val[0].id;
+{
+  "name": "feishu-task-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "node-cron": "^3.0.3"
   }
-  if (typeof val === 'object' && val.text) return val.text;
-  return String(val);
-}
-
-function formatDate(val) {
-  if (!val) return 'N/A';
-  if (typeof val === 'number') {
-    const d = new Date(val);
-    return `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`;
-  }
-  return String(val);
-}
-
-async function sendDM(userId, content) {
-  const token = await getTenantToken();
-  await axios.post('https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id', {
-    receive_id: userId,
-    msg_type: 'text',
-    content: JSON.stringify({ text: content })
-  }, { headers: { Authorization: `Bearer ${token}` } });
-}
-
-async function sendCard(userId, card) {
-  const token = await getTenantToken();
-  await axios.post('https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id', {
-    receive_id: userId,
-    msg_type: 'interactive',
-    content: JSON.stringify(card)
-  }, { headers: { Authorization: `Bearer ${token}` } });
-}
-
-async function getTasks() {
-  const token = await getTenantToken();
-  const res = await axios.get(
-    `https://open.feishu.cn/open-apis/bitable/v1/apps/${BITABLE_APP_TOKEN}/tables/${BITABLE_TABLE_ID}/records?page_size=100`,
-    { headers: { Authorization: `Bearer ${token}` } }
+}    { headers: { Authorization: `Bearer ${token}` } }
   );
   return res.data.data?.items || [];
 }
