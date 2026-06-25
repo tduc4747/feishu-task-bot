@@ -213,9 +213,15 @@ app.post('/webhook', async (req, res) => {
         if (myTasks.length === 0) {
           await sendDM(senderId, '✅ Bạn không có task nào đang chờ xử lý.');
         } else {
-          const list = myTasks.map((t, i) =>
-            `${i + 1}. ${t.fields['Task'] || 'N/A'} — ${t.fields['Trạng thái'] || 'N/A'}`
-          ).join('\n');
+const list = myTasks.map((t, i) => {
+  const taskName = typeof t.fields['Task'] === 'object' 
+    ? t.fields['Task']?.[0]?.text || 'N/A'
+    : t.fields['Task'] || 'N/A';
+  const status = typeof t.fields['Trạng thái'] === 'object'
+    ? t.fields['Trạng thái']?.[0]?.text || 'N/A'  
+    : t.fields['Trạng thái'] || 'N/A';
+  return `${i + 1}. ${taskName} — ${status}`;
+}).join('\n');
           await sendDM(senderId, `📋 Task của bạn:\n${list}`);
         }
 
