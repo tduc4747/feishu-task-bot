@@ -393,8 +393,10 @@ app.post('/webhook', async (req, res) => {
 
 // ─── Callback ────────────────────────────────────────────────────
 app.post('/callback', async (req, res) => {
+  console.log('RAW headers:', JSON.stringify(req.headers));
+  console.log('RAW body:', JSON.stringify(req.body));
   const body = req.body;
-
+  console.log('Callback received:', JSON.stringify(body));
   if (body.type === 'url_verification' || body.challenge) {
     return res.status(200).json({ challenge: body.challenge });
   }
