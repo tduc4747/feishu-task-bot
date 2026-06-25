@@ -45,17 +45,8 @@ async function updateCard(messageId, card) {
   const token = await getTenantToken();
   await axios.patch(
     `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}`,
-    {
-      content: JSON.stringify(card)
-    },
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-}
-    {
-      msg_type: 'interactive',
-      content: JSON.stringify(card)
-    },
-    { headers: { Authorization: `Bearer ${token}` } }
+    { content: JSON.stringify(card) },
+    { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
   );
 }
 
