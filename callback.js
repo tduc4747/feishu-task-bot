@@ -26,7 +26,9 @@ async function handleCallback(req, res) {
     const formValues = eventData.action?.form_value || {};
 
     console.log('Action:', action, '| UserId:', userId, '| MessageId:', messageId);
-
+    console.log('Full event keys:', Object.keys(eventData));
+console.log('Context:', JSON.stringify(body.context));
+console.log('Token:', body.token);
     if (!action || !userId) {
       console.log('Missing action or userId');
       return;
