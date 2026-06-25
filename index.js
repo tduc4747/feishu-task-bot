@@ -182,9 +182,10 @@ function cardSaleApprove(recordId, taskName, sku) {
 app.post('/webhook', async (req, res) => {
   const body = req.body;
 
-  // Verify challenge (Feishu gửi lần đầu để xác thực URL)
+// Verify challenge (Feishu gửi lần đầu để xác thực URL)
   if (body.challenge) {
-    return res.json({ challenge: body.challenge });
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify({ challenge: body.challenge }));
   }
 
   const event = body.event;
