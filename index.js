@@ -10,7 +10,7 @@ const BITABLE_APP_TOKEN = process.env.BITABLE_APP_TOKEN;
 const BITABLE_TABLE_ID = process.env.BITABLE_TABLE_ID;
 const LEADER_USER_ID = process.env.LEADER_USER_ID;
 
-// ─── Lấy access token ───────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────
 async function getTenantToken() {
   const res = await axios.post('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
     app_id: FEISHU_APP_ID,
@@ -19,7 +19,27 @@ async function getTenantToken() {
   return res.data.tenant_access_token;
 }
 
-// ─── Gửi DM cho user ────────────────────────────────────────────
+function getFieldText(val) {
+  if (!val) return 'N/A';
+  if (typeof val === 'string') return val;
+  if (Array.isArray(val)) {
+    if (val[0]?.text) return val.map(v => v.text).join(', ');
+    if (val[0]?.name) return val.map(v => v.name).join(', ');
+    if (val[0]?.id) return val[0].id;
+  }
+  if (typeof val === 'object' && val.text) return val.text;
+  return String(val);
+}
+
+function formatDate(val) {
+  if (!val) return 'N/A';
+  if (typeof val === 'number') {
+    const d = new Date(val);
+    return `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`;
+  }
+  return String(val);
+}
+
 async function sendDM(userId, content) {
   const token = await getTenantToken();
   await axios.post('https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id', {
@@ -29,7 +49,6 @@ async function sendDM(userId, content) {
   }, { headers: { Authorization: `Bearer ${token}` } });
 }
 
-// ─── Gửi card cho user ──────────────────────────────────────────
 async function sendCard(userId, card) {
   const token = await getTenantToken();
   await axios.post('https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id', {
@@ -39,17 +58,24 @@ async function sendCard(userId, card) {
   }, { headers: { Authorization: `Bearer ${token}` } });
 }
 
-// ─── Lấy danh sách task từ Bitable ──────────────────────────────
 async function getTasks() {
   const token = await getTenantToken();
   const res = await axios.get(
-    `https://open.feishu.cn/open-apis/bitable/v1/apps/${BITABLE_APP_TOKEN}/tables/${BITABLE_TABLE_ID}/records`,
+    `https://open.feishu.cn/open-apis/bitable/v1/apps/${BITABLE_APP_TOKEN}/tables/${BITABLE_TABLE_ID}/records?page_size=100`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
-  return res.data.data.items || [];
+  return res.data.data?.items || [];
 }
 
-// ─── Cập nhật task trong Bitable ────────────────────────────────
+async function getTask(recordId) {
+  const token = await getTenantToken();
+  const res = await axios.get(
+    `https://open.feishu.cn/open-apis/bitable/v1/apps/${BITABLE_APP_TOKEN}/tables/${BITABLE_TABLE_ID}/records/${recordId}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  return res.data.data?.record;
+}
+
 async function updateTask(recordId, fields) {
   const token = await getTenantToken();
   await axios.put(
@@ -59,7 +85,6 @@ async function updateTask(recordId, fields) {
   );
 }
 
-// ─── Tạo task mới trong Bitable ─────────────────────────────────
 async function createTask(fields) {
   const token = await getTenantToken();
   const res = await axios.post(
@@ -67,130 +92,242 @@ async function createTask(fields) {
     { fields },
     { headers: { Authorization: `Bearer ${token}` } }
   );
-  return res.data.data.record;
-}
-
-// ─── Lấy 1 record theo ID ───────────────────────────────────────
-async function getTask(recordId) {
-  const token = await getTenantToken();
-  const res = await axios.get(
-    `https://open.feishu.cn/open-apis/bitable/v1/apps/${BITABLE_APP_TOKEN}/tables/${BITABLE_TABLE_ID}/records/${recordId}`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-  return res.data.data.record;
+  return res.data.data?.record;
 }
 
 // ─── Cards ──────────────────────────────────────────────────────
 function cardSaleForm() {
   return {
-    schema: "2.0",
-    body: {
-      type: "page",
-      elements: [
-        { tag: "markdown", content: "## 📋 Gửi Task Mới" },
-        { tag: "input", placeholder: { tag: "plain_text", content: "Tên sản phẩm / SKU" }, name: "sku" },
-        { tag: "input", placeholder: { tag: "plain_text", content: "Mô tả ngắn" }, name: "mo_ta_ngan" },
-        { tag: "input", placeholder: { tag: "plain_text", content: "Deadline (DD/MM/YYYY)" }, name: "deadline" },
-        { tag: "input", placeholder: { tag: "plain_text", content: "Mô tả chi tiết (không bắt buộc)" }, name: "mo_ta_chi_tiet", multiline: true },
-        {
-          tag: "button",
-          text: { tag: "plain_text", content: "📤 Gửi Task" },
-          type: "primary",
-          behaviors: [{ type: "callback", value: { action: "submit_task" } }]
-        }
+    "config": { "wide_screen_mode": true },
+    "header": {
+      "title": { "tag": "plain_text", "content": "📋 Gửi Task Mới" },
+      "template": "blue"
+    },
+    "elements": [
+      {
+        "tag": "div",
+        "fields": [
+          { "is_short": false, "text": { "tag": "lark_md", "content": "**Tên sản phẩm / SKU**" } }
+        ]
+      },
+      {
+        "tag": "input",
+        "placeholder": { "tag": "plain_text", "content": "Nhập SKU..." },
+        "action": { "type": "input_callback", "value": { "field": "sku" } }
+      },
+      {
+        "tag": "div",
+        "fields": [
+          { "is_short": false, "text": { "tag": "lark_md", "content": "**Mô tả ngắn**" } }
+        ]
+      },
+      {
+        "tag": "input",
+        "placeholder": { "tag": "plain_text", "content": "Mô tả công việc..." },
+        "action": { "type": "input_callback", "value": { "field": "mo_ta_ngan" } }
+      },
+      {
+        "tag": "div",
+        "fields": [
+          { "is_short": false, "text": { "tag": "lark_md", "content": "**Deadline (DD/MM/YYYY)**" } }
+        ]
+      },
+      {
+        "tag": "input",
+        "placeholder": { "tag": "plain_text", "content": "VD: 30/06/2026" },
+        "action": { "type": "input_callback", "value": { "field": "deadline" } }
+      },
+      {
+        "tag": "div",
+        "fields": [
+          { "is_short": false, "text": { "tag": "lark_md", "content": "**Mô tả chi tiết** *(không bắt buộc)*" } }
+        ]
+      },
+      {
+        "tag": "input",
+        "placeholder": { "tag": "plain_text", "content": "Thêm chi tiết nếu cần..." },
+        "action": { "type": "input_callback", "value": { "field": "mo_ta_chi_tiet" } }
+      },
+      { "tag": "hr" },
+      {
+        "tag": "action",
+        "actions": [
+          {
+            "tag": "button",
+            "text": { "tag": "plain_text", "content": "📤 Gửi Task" },
+            "type": "primary",
+            "value": { "action": "submit_task" }
+          }
+        ]
+      }
+    ]
+  };
+}
+
+function cardMyTasks(tasks) {
+  if (tasks.length === 0) {
+    return {
+      "config": { "wide_screen_mode": true },
+      "header": {
+        "title": { "tag": "plain_text", "content": "📋 Task Của Bạn" },
+        "template": "blue"
+      },
+      "elements": [
+        { "tag": "div", "text": { "tag": "lark_md", "content": "✅ Bạn không có task nào đang xử lý." } }
       ]
+    };
+  }
+
+  const statusEmoji = (s) => {
+    if (!s || s === 'Đang chờ') return '⏳';
+    if (s === 'Đang làm') return '🔄';
+    if (s === 'Chờ check') return '👀';
+    if (s === 'Hoàn thành') return '✅';
+    return '📌';
+  };
+
+  const elements = [];
+
+  tasks.forEach((t, i) => {
+    const taskName = getFieldText(t.fields['Task']);
+    const nguoiGiao = getFieldText(t.fields['Người giao']);
+    const deadline = formatDate(t.fields['Deadline']);
+    const trangThai = getFieldText(t.fields['Trạng thái']);
+    const recordId = t.record_id;
+
+    elements.push({
+      "tag": "div",
+      "text": {
+        "tag": "lark_md",
+        "content": `**${i + 1}. ${taskName}**\n👤 Người giao: ${nguoiGiao}\n📅 Deadline: ${deadline}\n${statusEmoji(trangThai)} Trạng thái: **${trangThai}**`
+      }
+    });
+
+    // Nút đổi trạng thái tùy theo trạng thái hiện tại
+    const buttons = [];
+
+    if (!trangThai || trangThai === 'Đang chờ') {
+      buttons.push({
+        "tag": "button",
+        "text": { "tag": "plain_text", "content": "▶️ Bắt đầu làm" },
+        "type": "primary",
+        "value": { "action": "start_task", "record_id": recordId }
+      });
+      buttons.push({
+        "tag": "button",
+        "text": { "tag": "plain_text", "content": "👀 Chờ check" },
+        "type": "default",
+        "value": { "action": "pending_check", "record_id": recordId }
+      });
+    } else if (trangThai === 'Đang làm') {
+      buttons.push({
+        "tag": "button",
+        "text": { "tag": "plain_text", "content": "👀 Chờ check" },
+        "type": "default",
+        "value": { "action": "pending_check", "record_id": recordId }
+      });
     }
+
+    if (buttons.length > 0) {
+      elements.push({ "tag": "action", "actions": buttons });
+    }
+
+    // Thêm divider giữa các task (trừ task cuối)
+    if (i < tasks.length - 1) {
+      elements.push({ "tag": "hr" });
+    }
+  });
+
+  return {
+    "config": { "wide_screen_mode": true },
+    "header": {
+      "title": { "tag": "plain_text", "content": `📋 Task Của Bạn (${tasks.length})` },
+      "template": "blue"
+    },
+    "elements": elements
   };
 }
 
 function cardAssignTask(recordId, taskName, sku) {
   return {
-    schema: "2.0",
-    body: {
-      type: "page",
-      elements: [
-        { tag: "markdown", content: `## 🔔 Task Mới Cần Gán\n**Task:** ${taskName}\n**SKU:** ${sku}` },
-        {
-          tag: "select_person",
-          placeholder: { tag: "plain_text", content: "Chọn người thực hiện..." },
-          name: "assignee"
-        },
-        {
-          tag: "button",
-          text: { tag: "plain_text", content: "✅ Gán Task" },
-          type: "primary",
-          behaviors: [{ type: "callback", value: { action: "assign_task", record_id: recordId } }]
+    "config": { "wide_screen_mode": true },
+    "header": {
+      "title": { "tag": "plain_text", "content": "🔔 Task Mới Cần Gán" },
+      "template": "orange"
+    },
+    "elements": [
+      {
+        "tag": "div",
+        "text": {
+          "tag": "lark_md",
+          "content": `**Task:** ${taskName}\n**SKU:** ${sku}`
         }
-      ]
-    }
-  };
-}
-
-function cardMediaTask(recordId, taskName, sku, moTa) {
-  return {
-    schema: "2.0",
-    body: {
-      type: "page",
-      elements: [
-        { tag: "markdown", content: `## 📌 Task Mới Của Bạn\n**Task:** ${taskName}\n**SKU:** ${sku}\n**Mô tả:** ${moTa}` },
-        {
-          tag: "button",
-          text: { tag: "plain_text", content: "▶️ Bắt Đầu Làm" },
-          type: "primary",
-          behaviors: [{ type: "callback", value: { action: "start_task", record_id: recordId } }]
-        }
-      ]
-    }
-  };
-}
-
-function cardMediaInProgress(recordId, taskName) {
-  return {
-    schema: "2.0",
-    body: {
-      type: "page",
-      elements: [
-        { tag: "markdown", content: `## 🔄 Đang Làm\n**Task:** ${taskName}` },
-        {
-          tag: "button",
-          text: { tag: "plain_text", content: "👀 Chờ Check" },
-          type: "default",
-          behaviors: [{ type: "callback", value: { action: "pending_check", record_id: recordId } }]
-        }
-      ]
-    }
+      },
+      { "tag": "hr" },
+      {
+        "tag": "action",
+        "actions": [
+          {
+            "tag": "select_person",
+            "placeholder": { "tag": "plain_text", "content": "Chọn người thực hiện..." },
+            "value": { "action": "assign_task", "record_id": recordId }
+          }
+        ]
+      },
+      {
+        "tag": "action",
+        "actions": [
+          {
+            "tag": "button",
+            "text": { "tag": "plain_text", "content": "✅ Xác nhận gán" },
+            "type": "primary",
+            "value": { "action": "confirm_assign", "record_id": recordId }
+          }
+        ]
+      }
+    ]
   };
 }
 
 function cardSaleApprove(recordId, taskName, sku) {
   return {
-    schema: "2.0",
-    body: {
-      type: "page",
-      elements: [
-        { tag: "markdown", content: `## 👀 Task Chờ Duyệt\n**Task:** ${taskName}\n**SKU:** ${sku}\n\nMedia đã hoàn thành, vui lòng kiểm tra và xác nhận.` },
-        {
-          tag: "button",
-          text: { tag: "plain_text", content: "✅ Hoàn Thành" },
-          type: "primary",
-          behaviors: [{ type: "callback", value: { action: "complete_task", record_id: recordId } }]
+    "config": { "wide_screen_mode": true },
+    "header": {
+      "title": { "tag": "plain_text", "content": "👀 Task Chờ Duyệt" },
+      "template": "yellow"
+    },
+    "elements": [
+      {
+        "tag": "div",
+        "text": {
+          "tag": "lark_md",
+          "content": `**Task:** ${taskName}\n**SKU:** ${sku}\n\nMedia đã hoàn thành, vui lòng kiểm tra và xác nhận.`
         }
-      ]
-    }
+      },
+      { "tag": "hr" },
+      {
+        "tag": "action",
+        "actions": [
+          {
+            "tag": "button",
+            "text": { "tag": "plain_text", "content": "✅ Hoàn Thành" },
+            "type": "primary",
+            "value": { "action": "complete_task", "record_id": recordId }
+          }
+        ]
+      }
+    ]
   };
 }
 
-// ─── Webhook: nhận events từ Feishu ─────────────────────────────
+// ─── Webhook ─────────────────────────────────────────────────────
 app.post('/webhook', async (req, res) => {
   const body = req.body;
-  console.log('Webhook received:', JSON.stringify(body));
 
-  // Feishu URL verification
   if (body.type === 'url_verification' || body.challenge) {
     return res.status(200).json({ challenge: body.challenge });
   }
 
-  // Phải trả 200 ngay để Feishu không retry
   res.sendStatus(200);
 
   try {
@@ -199,60 +336,64 @@ app.post('/webhook', async (req, res) => {
 
     const msgType = event.message?.message_type;
     const senderId = event.sender?.sender_id?.open_id;
+    if (!senderId) return;
+
     const text = msgType === 'text'
       ? JSON.parse(event.message.content).text.trim().toLowerCase()
       : '';
 
-    if (msgType === 'text') {
-      if (text === 'gửi task' || text === 'tạo task' || text === 'gui task' || text === 'tao task') {
-        await sendCard(senderId, cardSaleForm());
+    if (msgType !== 'text') return;
 
-      } else if (text === 'task của tôi' || text === 'task cua toi') {
-        const tasks = await getTasks();
-        const myTasks = tasks.filter(t => t.fields['Trạng thái'] !== 'Hoàn thành');
-        if (myTasks.length === 0) {
-          await sendDM(senderId, '✅ Bạn không có task nào đang chờ xử lý.');
-        } else {
-const list = myTasks.map((t, i) => {
-  const taskName = typeof t.fields['Task'] === 'object' 
-    ? t.fields['Task']?.[0]?.text || 'N/A'
-    : t.fields['Task'] || 'N/A';
-  const status = typeof t.fields['Trạng thái'] === 'object'
-    ? t.fields['Trạng thái']?.[0]?.text || 'N/A'  
-    : t.fields['Trạng thái'] || 'N/A';
-  return `${i + 1}. ${taskName} — ${status}`;
-}).join('\n');
-          await sendDM(senderId, `📋 Task của bạn:\n${list}`);
+    if (text === 'gửi task' || text === 'gui task' || text === 'tạo task' || text === 'tao task') {
+      await sendCard(senderId, cardSaleForm());
+
+    } else if (text === 'task của tôi' || text === 'task cua toi') {
+      const allTasks = await getTasks();
+      // Lọc task theo người thực hiện (open_id)
+      const myTasks = allTasks.filter(t => {
+        const nguoiThucHien = t.fields['Người thực hiện'];
+        if (!nguoiThucHien) return false;
+        if (Array.isArray(nguoiThucHien)) {
+          return nguoiThucHien.some(u => u.id === senderId || u.open_id === senderId);
         }
+        return false;
+      }).filter(t => {
+        const status = getFieldText(t.fields['Trạng thái']);
+        return status !== 'Hoàn thành';
+      });
 
-      } else if (text === 'task chờ gán' || text === 'task cho gan') {
-        const tasks = await getTasks();
-        const pending = tasks.filter(t => t.fields['Trạng thái'] === 'Đang chờ' && !t.fields['Người thực hiện']);
-        if (pending.length === 0) {
-          await sendDM(senderId, '✅ Không có task nào đang chờ gán.');
-        } else {
-          for (const t of pending) {
-            await sendCard(senderId, cardAssignTask(
-              t.record_id,
-              t.fields['Task'] || 'N/A',
-              t.fields['Tên sản phẩm / SKU'] || 'N/A'
-            ));
-          }
-        }
+      await sendCard(senderId, cardMyTasks(myTasks));
 
+    } else if (text === 'task chờ gán' || text === 'task cho gan') {
+      const allTasks = await getTasks();
+      const pending = allTasks.filter(t => {
+        const status = getFieldText(t.fields['Trạng thái']);
+        return status === 'Đang chờ' && !t.fields['Người thực hiện'];
+      });
+      if (pending.length === 0) {
+        await sendDM(senderId, '✅ Không có task nào đang chờ gán.');
       } else {
-        await sendDM(senderId, `Xin chào! Các lệnh:\n• "gửi task" — tạo task mới\n• "task của tôi" — xem task đang làm\n• "task chờ gán" — xem task chưa có người nhận (leader)`);
+        for (const t of pending) {
+          await sendCard(senderId, cardAssignTask(
+            t.record_id,
+            getFieldText(t.fields['Task']),
+            getFieldText(t.fields['Tên sản phẩm / SKU'])
+          ));
+        }
       }
+
+    } else {
+      await sendDM(senderId, `Xin chào! Các lệnh:\n• "gửi task" — tạo task mới\n• "task của tôi" — xem task đang làm\n• "task chờ gán" — xem task chưa có người nhận (leader)`);
     }
+
   } catch (err) {
-    console.error('Webhook error:', err.message);
+    console.error('Webhook error:', err.message, err.stack);
   }
 });
 
-// ─── Callback: nhận button click từ Feishu cards ─────────────────
+// ─── Callback ────────────────────────────────────────────────────
 app.post('/callback', async (req, res) => {
   const body = req.body;
-  console.log('Callback received:', JSON.stringify(body));
 
   if (body.type === 'url_verification' || body.challenge) {
     return res.status(200).json({ challenge: body.challenge });
@@ -263,37 +404,37 @@ app.post('/callback', async (req, res) => {
   try {
     const action = body.action?.value?.action;
     const userId = body.operator?.open_id;
-    const formValues = body.action?.form_value || {};
 
     if (action === 'submit_task') {
+      const formVals = body.action?.form_value || {};
       const fields = {
-        'Tên sản phẩm / SKU': formValues.sku || '',
-        'Mô tả ngắn': formValues.mo_ta_ngan || '',
-        'Mô tả chi tiết': formValues.mo_ta_chi_tiet || '',
+        'Tên sản phẩm / SKU': formVals.sku || '',
+        'Mô tả ngắn': formVals.mo_ta_ngan || '',
+        'Mô tả chi tiết': formVals.mo_ta_chi_tiet || '',
         'Trạng thái': 'Đang chờ',
       };
       const record = await createTask(fields);
-      await sendDM(userId, `✅ Task đã gửi! Đang chờ leader gán người thực hiện.`);
+      await sendDM(userId, `✅ Task "${formVals.sku}" đã gửi! Đang chờ leader gán người thực hiện.`);
       await sendCard(LEADER_USER_ID, cardAssignTask(
         record.record_id,
-        formValues.mo_ta_ngan || 'N/A',
-        formValues.sku || 'N/A'
+        formVals.mo_ta_ngan || 'N/A',
+        formVals.sku || 'N/A'
       ));
 
-    } else if (action === 'assign_task') {
+    } else if (action === 'confirm_assign') {
       const recordId = body.action?.value?.record_id;
-      const assigneeId = formValues.assignee?.[0]?.id || formValues.assignee;
-      await updateTask(recordId, {
-        'Trạng thái': 'Đang chờ'
-      });
+      const formVals = body.action?.form_value || {};
+      const assigneeId = Array.isArray(formVals.assignee)
+        ? formVals.assignee[0]?.id || formVals.assignee[0]
+        : formVals.assignee;
+      if (!assigneeId) {
+        await sendDM(userId, '⚠️ Vui lòng chọn người thực hiện trước!');
+        return;
+      }
+      await updateTask(recordId, { 'Trạng thái': 'Đang chờ' });
       const task = await getTask(recordId);
       const fields = task.fields;
-      await sendCard(assigneeId, cardMediaTask(
-        recordId,
-        fields['Task'] || fields['Mô tả ngắn'] || 'N/A',
-        fields['Tên sản phẩm / SKU'] || 'N/A',
-        fields['Mô tả ngắn'] || ''
-      ));
+      await sendDM(assigneeId, `📌 Bạn có task mới!\n**SKU:** ${getFieldText(fields['Tên sản phẩm / SKU'])}\n**Mô tả:** ${getFieldText(fields['Mô tả ngắn'])}\nNhắn "task của tôi" để xem chi tiết.`);
       await sendDM(userId, `✅ Đã gán task thành công.`);
 
     } else if (action === 'start_task') {
@@ -304,9 +445,11 @@ app.post('/callback', async (req, res) => {
       });
       const task = await getTask(recordId);
       const fields = task.fields;
-      const saleId = fields['Người giao']?.[0]?.id;
-      if (saleId) await sendDM(saleId, `🔄 Task "${fields['Tên sản phẩm / SKU'] || 'N/A'}" đã được bắt đầu thực hiện.`);
-      await sendCard(userId, cardMediaInProgress(recordId, fields['Task'] || fields['Mô tả ngắn'] || 'N/A'));
+      const saleId = Array.isArray(fields['Người giao'])
+        ? fields['Người giao'][0]?.id
+        : null;
+      if (saleId) await sendDM(saleId, `🔄 Task "${getFieldText(fields['Tên sản phẩm / SKU'])}" đã được bắt đầu thực hiện.`);
+      await sendDM(userId, `▶️ Đã chuyển sang "Đang làm"!`);
 
     } else if (action === 'pending_check') {
       const recordId = body.action?.value?.record_id;
@@ -316,11 +459,13 @@ app.post('/callback', async (req, res) => {
       });
       const task = await getTask(recordId);
       const fields = task.fields;
-      const saleId = fields['Người giao']?.[0]?.id;
+      const saleId = Array.isArray(fields['Người giao'])
+        ? fields['Người giao'][0]?.id
+        : null;
       if (saleId) await sendCard(saleId, cardSaleApprove(
         recordId,
-        fields['Task'] || fields['Mô tả ngắn'] || 'N/A',
-        fields['Tên sản phẩm / SKU'] || 'N/A'
+        getFieldText(fields['Task']),
+        getFieldText(fields['Tên sản phẩm / SKU'])
       ));
       await sendDM(userId, `👀 Đã chuyển sang "Chờ check". Đang chờ sale duyệt.`);
 
@@ -332,18 +477,19 @@ app.post('/callback', async (req, res) => {
       });
       const task = await getTask(recordId);
       const fields = task.fields;
-      const mediaId = fields['Người thực hiện']?.[0]?.id;
-      const msg = `✅ Task "${fields['Tên sản phẩm / SKU'] || 'N/A'}" đã hoàn thành!`;
+      const mediaId = Array.isArray(fields['Người thực hiện'])
+        ? fields['Người thực hiện'][0]?.id
+        : null;
+      const msg = `✅ Task "${getFieldText(fields['Tên sản phẩm / SKU'])}" đã hoàn thành!`;
       await sendDM(userId, msg);
       if (mediaId) await sendDM(mediaId, msg);
     }
 
   } catch (err) {
-    console.error('Callback error:', err.message);
+    console.error('Callback error:', err.message, err.stack);
   }
 });
 
-// ─── Health check ────────────────────────────────────────────────
 app.get('/', (req, res) => res.json({ status: 'ok', message: 'Feishu Task Bot running' }));
 
 const PORT = process.env.PORT || 8080;
