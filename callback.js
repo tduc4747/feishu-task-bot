@@ -129,7 +129,9 @@ if (!action || !userId) {
 
       // Notify người giao
       const task = await getRecord(TASK_TABLE, recordId);
-      const saleId = task.fields[COLS.NGUOI_GIAO]?.[0]?.id;
+  const saleId = task.fields[COLS.NGUOI_GIAO]?.[0]?.id;
+  console.log('SaleId:', saleId);
+  console.log('NguoiGiao field:', JSON.stringify(task.fields[COLS.NGUOI_GIAO]));
       const taskName = task.fields[COLS.TASK_NAME];
       const sku = task.fields[COLS.SKU];
       if (saleId) await sendDM(saleId, `🔄 Task "${taskName} | ${sku}" đã được bắt đầu thực hiện.`);
