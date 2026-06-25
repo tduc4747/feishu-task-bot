@@ -35,7 +35,7 @@ async function handleWebhook(req, res) {
         action = 'show_menu'; // mặc định hiện menu
       }
 
-    } else if (eventType === 'bot.menu_click') {
+    } else if (eventType === 'application.bot.menu_v6') {
       userId = event.operator?.operator_id?.open_id;
       action = event.event_key;
 
