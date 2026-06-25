@@ -19,10 +19,15 @@ async function handleCallback(req, res) {
   res.sendStatus(200);
 
   try {
-    const action = body.action?.value?.action || body.action?.value?.key;
-    const userId = body.operator?.open_id;
-    const messageId = body.open_message_id;
-    if (!action || !userId) return;
+const action = body.action?.value?.action || body.action?.value?.key;
+const userId = body.operator?.open_id;
+const messageId = body.open_message_id;
+console.log('Action:', action, 'UserId:', userId, 'MessageId:', messageId);
+console.log('Full value:', JSON.stringify(body.action?.value));
+if (!action || !userId) {
+  console.log('Missing action or userId, returning');
+  return;
+}
 
     const roles = await getUserRole(userId);
 
