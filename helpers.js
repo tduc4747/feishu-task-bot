@@ -43,11 +43,18 @@ async function sendCard(userId, card) {
 // ─── Update card đã gửi (realtime) ──────────────────────────────
 async function updateCard(messageId, card) {
   const token = await getTenantToken();
-  await axios.patch(
-    `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}`,
-    { content: JSON.stringify(card) },
-    { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
-  );
+  try {
+    await axios.put(
+      `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}/content`,
+      {
+        msg_type: 'interactive',
+        content: JSON.stringify(card)
+      },
+      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+    );
+  } catch (err) {
+    console.error('updateCard error:', err.response?.status, err.response?.data);
+  }
 }
 
 // ─── Format tên người dùng từ Bitable ───────────────────────────
