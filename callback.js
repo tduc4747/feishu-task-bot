@@ -8,6 +8,8 @@ const TASK_TABLE = config.TABLE.TASK;
 
 // ─── Xử lý button click từ card ─────────────────────────────────
 async function handleCallback(req, res) {
+  console.log('=== CALLBACK HIT ===');
+  console.log('Body:', JSON.stringify(req.body).substring(0, 500));
   const body = req.body;
 
   if (body.type === 'url_verification' || body.challenge) {
