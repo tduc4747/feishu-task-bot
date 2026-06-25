@@ -21,7 +21,7 @@ async function handleCallback(req, res) {
     const eventData = body.event || {};
     const action = eventData.action?.value?.action || eventData.action?.value?.key;
     const userId = eventData.operator?.open_id;
-    const messageId = eventData.open_message_id;
+    const messageId = eventData.context?.open_message_id || eventData.open_message_id;
     const cardMessageId = eventData.action?.value?.message_id || messageId;
     const formValues = eventData.action?.form_value || {};
 
