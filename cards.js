@@ -121,7 +121,7 @@ function cardMediaTasks(tasks, messageId) {
         "tag": "button",
         "text": { "tag": "plain_text", "content": "Bắt đầu làm" },
         "type": "primary",
-        "value": { "action": "start_task", "record_id": recordId, "message_id": messageId }
+        "value": { "key": "start_task", "record_id": recordId, "message_id": messageId }
       });
     } else if (trangThai === STATUS.DANG_LAM) {
       buttons.push({
