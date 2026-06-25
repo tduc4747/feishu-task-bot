@@ -19,9 +19,11 @@ async function handleCallback(req, res) {
   res.sendStatus(200);
 
   try {
-const action = body.action?.value?.action || body.action?.value?.key;
-const userId = body.operator?.open_id;
-const messageId = body.open_message_id;
+// Feishu Card 2.0 gửi data trong event
+const event = body.event || body;
+const action = event.action?.value?.action || event.action?.value?.key;
+const userId = event.operator?.open_id || body.operator?.open_id;
+const messageId = event.open_message_id || body.open_message_id;
 console.log('Action:', action, 'UserId:', userId, 'MessageId:', messageId);
 console.log('Full value:', JSON.stringify(body.action?.value));
 if (!action || !userId) {
