@@ -116,7 +116,7 @@ console.log('Token:', body.token);
 
       await updateRecord(TASK_TABLE, recordId, {
         [COLS.TRANG_THAI]: STATUS.DANG_LAM,
-        [COLS.DANG_LAM]: 1,
+        [COLS.DANG_LAM]: true,
       });
 
       const task = await getRecord(TASK_TABLE, recordId);
@@ -139,7 +139,7 @@ console.log('Token:', body.token);
 
       await updateRecord(TASK_TABLE, recordId, {
         [COLS.TRANG_THAI]: STATUS.CHO_CHECK,
-        [COLS.CHO_CHECK]: 1,
+        [COLS.CHO_CHECK]: true,
       });
 
       const task = await getRecord(TASK_TABLE, recordId);
@@ -160,7 +160,7 @@ console.log('Token:', body.token);
 
       await updateRecord(TASK_TABLE, recordId, {
         [COLS.TRANG_THAI]: STATUS.HOAN_THANH,
-        [COLS.DONE]: 1,
+        [COLS.DONE]: true,
       });
 
       const task = await getRecord(TASK_TABLE, recordId);
