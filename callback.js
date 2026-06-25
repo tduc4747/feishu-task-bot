@@ -19,11 +19,14 @@ async function handleCallback(req, res) {
   res.sendStatus(200);
 
   try {
-// Feishu Card 2.0 gửi data trong event
-const event = body.event || body;
-const action = event.action?.value?.action || event.action?.value?.key;
-const userId = event.operator?.open_id || body.operator?.open_id;
-const messageId = event.open_message_id || body.open_message_id;
+
+// Feishu Card 2.0: operator và action nằm trong body.event
+const eventData = body.event || {};
+const action = eventData.action?.value?.action || eventData.action?.value?.key;
+const userId = eventData.operator?.open_id;
+const messageId = eventData.open_message_id;
+const recordId_global = eventData.action?.value?.record_id;
+console.log('Action:', action, 'UserId:', userId, 'RecordId:', recordId_global);
 console.log('Action:', action, 'UserId:', userId, 'MessageId:', messageId);
 console.log('Full value:', JSON.stringify(body.action?.value));
 if (!action || !userId) {
@@ -72,7 +75,7 @@ if (!action || !userId) {
         await sendDM(userId, '⛔ Chức năng này chỉ dành cho Admin.');
         return;
       }
-      const recordId = body.action?.value?.record_id;
+      const recordId = eventData.action?.value?.record_id;
       const formValues = body.action?.form_value || {};
 
       // Lấy assignee từ select_static
@@ -116,7 +119,7 @@ if (!action || !userId) {
 
     // ─── Media: bắt đầu làm ─────────────────────────
     } else if (action === 'start_task') {
-      const recordId = body.action?.value?.record_id;
+      const recordId = eventData.action?.value?.record_id;
       const cardMessageId = body.action?.value?.message_id || messageId;
 
       await updateRecord(TASK_TABLE, recordId, {
@@ -137,7 +140,7 @@ if (!action || !userId) {
 
     // ─── Media: chờ check ───────────────────────────
     } else if (action === 'pending_check') {
-      const recordId = body.action?.value?.record_id;
+      const recordId = eventData.action?.value?.record_id;
       const cardMessageId = body.action?.value?.message_id || messageId;
 
       await updateRecord(TASK_TABLE, recordId, {
@@ -158,7 +161,7 @@ if (!action || !userId) {
 
     // ─── Sale/Media/Admin: hoàn thành ───────────────
     } else if (action === 'complete_task') {
-      const recordId = body.action?.value?.record_id;
+      const recordId = eventData.action?.value?.record_id;
       const cardMessageId = body.action?.value?.message_id || messageId;
 
       await updateRecord(TASK_TABLE, recordId, {
