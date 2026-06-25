@@ -19,7 +19,7 @@ async function handleCallback(req, res) {
   res.sendStatus(200);
 
   try {
-    const action = body.action?.value?.action;
+    const action = body.action?.value?.action || body.action?.value?.key;
     const userId = body.operator?.open_id;
     const messageId = body.open_message_id;
     if (!action || !userId) return;
