@@ -14,8 +14,13 @@ async function handleCallback(req, res) {
     return res.status(200).json({ challenge: body.challenge });
   }
 
-  // Respond immediately to avoid Feishu timeout (error 200672) and show loading toast
-  res.json({ toast: { type: 'info', content: '⏳ Đang xử lý...' } });
+  // select_static changes don't need a toast — just acknowledge
+  const actionTag = body.event?.action?.tag || body.action?.tag;
+  if (actionTag === 'select_static') {
+    res.sendStatus(200);
+  } else {
+    res.json({ toast: { type: 'info', content: '⏳ Đang xử lý...' } });
+  }
 
   try {
     const eventData = body.event || {};
@@ -23,7 +28,7 @@ async function handleCallback(req, res) {
     const userId = eventData.operator?.open_id;
     const messageId = eventData.context?.open_message_id || eventData.open_message_id;
     const cardMessageId = eventData.action?.value?.message_id || messageId;
-    const formValues = eventData.action?.form_value || {};
+    const formValues = eventData.action?.form_value || eventData.form_value || {};
 
     console.log('Action:', action, '| UserId:', userId, '| MessageId:', messageId);
 
@@ -60,13 +65,16 @@ async function handleCallback(req, res) {
       if (!roles.includes('admin')) { await sendDM(userId, '⛔ Chức năng này chỉ dành cho Admin.'); return; }
       const recordId = eventData.action?.value?.record_id;
 
-      let assigneeId = null;
-      for (const key of Object.keys(formValues)) {
-        const val = formValues[key];
-        if (typeof val === 'string' && val.startsWith('ou_')) { assigneeId = val; break; }
-        if (Array.isArray(val)) {
-          const found = val.find(v => typeof v === 'string' && v.startsWith('ou_'));
-          if (found) { assigneeId = found; break; }
+      // Read by name="assignee" first, then fall back to scanning all values
+      let assigneeId = formValues.assignee || null;
+      if (!assigneeId) {
+        for (const key of Object.keys(formValues)) {
+          const val = formValues[key];
+          if (typeof val === 'string' && val.startsWith('ou_')) { assigneeId = val; break; }
+          if (Array.isArray(val)) {
+            const found = val.find(v => typeof v === 'string' && v.startsWith('ou_'));
+            if (found) { assigneeId = found; break; }
+          }
         }
       }
 
@@ -114,6 +122,7 @@ async function handleCallback(req, res) {
 
       await updateRecord(TASK_TABLE, recordId, {
         [COLS.TRANG_THAI]: STATUS.CHO_CHECK,
+        [COLS.DANG_LAM]: false,
         [COLS.CHO_CHECK]: true,
       });
 
@@ -137,6 +146,8 @@ async function handleCallback(req, res) {
 
       await updateRecord(TASK_TABLE, recordId, {
         [COLS.TRANG_THAI]: STATUS.HOAN_THANH,
+        [COLS.DANG_LAM]: false,
+        [COLS.CHO_CHECK]: false,
         [COLS.DONE]: true,
       });
 

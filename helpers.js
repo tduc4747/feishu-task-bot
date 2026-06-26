@@ -75,7 +75,10 @@ function formatText(val) {
     if (val[0]?.text) return val.map(v => v.text).join(', ');
     if (val[0]?.name) return val.map(v => v.name).join(', ');
   }
-  if (typeof val === 'object' && val.text) return val.text;
+  if (typeof val === 'object') {
+    if (val.text) return val.text;
+    if (val.name) return val.name;
+  }
   return String(val);
 }
 

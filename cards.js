@@ -24,6 +24,7 @@ function cardMainMenu(roles) {
           "tag": "button",
           "text": { "tag": "plain_text", "content": "Kiểm tra task đã gửi" },
           "type": "default",
+          "loading_after_clicked": true,
           "value": { "key": "sale_my_tasks" }
         }
       ]
@@ -40,18 +41,21 @@ function cardMainMenu(roles) {
           "tag": "button",
           "text": { "tag": "plain_text", "content": "Task của tôi" },
           "type": "primary",
+          "loading_after_clicked": true,
           "value": { "key": "media_my_tasks" }
         },
         {
           "tag": "button",
           "text": { "tag": "plain_text", "content": "Task chờ gán" },
           "type": "default",
+          "loading_after_clicked": true,
           "value": { "key": "admin_pending_tasks" }
         },
         {
           "tag": "button",
           "text": { "tag": "plain_text", "content": "Workload team" },
           "type": "default",
+          "loading_after_clicked": true,
           "value": { "key": "admin_workload" }
         }
       ]
@@ -98,6 +102,7 @@ function cardMediaTasks(tasks, messageId) {
         "tag": "button",
         "text": { "tag": "plain_text", "content": "Bắt đầu làm" },
         "type": "primary",
+        "loading_after_clicked": true,
         "value": { "key": "start_task", "record_id": recordId, "message_id": messageId }
       });
     } else if (trangThai === STATUS.DANG_LAM) {
@@ -105,6 +110,7 @@ function cardMediaTasks(tasks, messageId) {
         "tag": "button",
         "text": { "tag": "plain_text", "content": "Chờ check" },
         "type": "default",
+        "loading_after_clicked": true,
         "value": { "key": "pending_check", "record_id": recordId, "message_id": messageId }
       });
     } else if (trangThai === STATUS.CHO_CHECK) {
@@ -112,6 +118,7 @@ function cardMediaTasks(tasks, messageId) {
         "tag": "button",
         "text": { "tag": "plain_text", "content": "Hoàn thành" },
         "type": "success",
+        "loading_after_clicked": true,
         "value": { "key": "complete_task", "record_id": recordId, "message_id": messageId }
       });
     }
@@ -161,6 +168,7 @@ function cardSaleTasks(tasks, messageId) {
           "tag": "button",
           "text": { "tag": "plain_text", "content": "✅ Hoàn Thành" },
           "type": "success",
+          "loading_after_clicked": true,
           "value": { "key": "complete_task", "record_id": recordId, "message_id": messageId }
         }]
       });
@@ -210,6 +218,7 @@ function cardPendingTasks(tasks, mediaMembers) {
       "actions": [
         {
           "tag": "select_static",
+          "name": "assignee",
           "placeholder": { "tag": "plain_text", "content": "Chọn người thực hiện..." },
           "options": options,
           "value": { "key": "select_assignee", "record_id": recordId }
@@ -218,6 +227,7 @@ function cardPendingTasks(tasks, mediaMembers) {
           "tag": "button",
           "text": { "tag": "plain_text", "content": "Gán" },
           "type": "primary",
+          "loading_after_clicked": true,
           "value": { "key": "assign_task", "record_id": recordId }
         }
       ]
@@ -249,6 +259,7 @@ function cardSaleApprove(recordId, taskName, sku) {
           "tag": "button",
           "text": { "tag": "plain_text", "content": "✅ Hoàn Thành" },
           "type": "primary",
+          "loading_after_clicked": true,
           "value": { "key": "complete_task", "record_id": recordId }
         }]
       }
