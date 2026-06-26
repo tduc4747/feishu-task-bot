@@ -52,8 +52,8 @@ async function sendCard(userId, card) {
 async function updateCard(messageId, card) {
   const token = await getTenantToken();
   try {
-    await axios.put(
-      `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}/content`,
+    await axios.patch(
+      `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}`,
       {
         msg_type: 'interactive',
         content: JSON.stringify(card)

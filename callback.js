@@ -24,8 +24,6 @@ async function handleCallback(req, res) {
     const userId = eventData.operator?.open_id;
     const messageId = eventData.context?.open_message_id || eventData.open_message_id;
     const cardMessageId = eventData.action?.value?.message_id || messageId;
-    const formValues = eventData.action?.form_value || eventData.form_value || {};
-
     console.log('Action:', action, '| UserId:', userId, '| MessageId:', messageId);
 
     if (!action || !userId) {
@@ -60,18 +58,9 @@ async function handleCallback(req, res) {
       if (!roles.includes('admin')) { await sendDM(userId, '⛔ Chức năng này chỉ dành cho Admin.'); return; }
       const recordId = eventData.action?.value?.record_id;
 
-      // Read by name="assignee" first, then fall back to scanning all values
-      let assigneeId = formValues.assignee || null;
-      if (!assigneeId) {
-        for (const key of Object.keys(formValues)) {
-          const val = formValues[key];
-          if (typeof val === 'string' && val.startsWith('ou_')) { assigneeId = val; break; }
-          if (Array.isArray(val)) {
-            const found = val.find(v => typeof v === 'string' && v.startsWith('ou_'));
-            if (found) { assigneeId = found; break; }
-          }
-        }
-      }
+      // Card cũ (không phải form): giá trị select_static nằm ở action.option,
+      // không phải form_value (form_value chỉ có ở card kiểu "form" container).
+      const assigneeId = eventData.action?.option || null;
 
       console.log('AssigneeId:', assigneeId);
 

@@ -210,15 +210,8 @@ function cardPendingTasks(tasks, mediaMembers) {
       "actions": [
         {
           "tag": "select_static",
-          "name": "assignee",
           "placeholder": { "tag": "plain_text", "content": "Chọn người thực hiện..." },
           "options": options,
-          "value": { "key": "select_assignee", "record_id": recordId }
-        },
-        {
-          "tag": "button",
-          "text": { "tag": "plain_text", "content": "Gán" },
-          "type": "primary",
           "value": { "key": "assign_task", "record_id": recordId }
         }
       ]
