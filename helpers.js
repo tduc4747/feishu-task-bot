@@ -52,7 +52,7 @@ async function sendCard(userId, card) {
 async function updateCard(messageId, card) {
   const token = await getTenantToken();
   try {
-    await axios.patch(
+    const res = await axios.patch(
       `https://open.feishu.cn/open-apis/im/v1/messages/${messageId}`,
       {
         msg_type: 'interactive',
@@ -60,8 +60,12 @@ async function updateCard(messageId, card) {
       },
       { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
     );
+    // Feishu hay trả HTTP 200 kèm mã lỗi logic bên trong body — phải tự kiểm tra code
+    if (res.data?.code && res.data.code !== 0) {
+      console.error('updateCard lỗi logic:', messageId, res.data);
+    }
   } catch (err) {
-    console.error('updateCard error:', err.response?.status, err.response?.data);
+    console.error('updateCard error:', messageId, err.response?.status, err.response?.data);
   }
 }
 
