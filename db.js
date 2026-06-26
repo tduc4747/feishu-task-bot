@@ -25,9 +25,9 @@ async function init() {
       mo_ta_chi_tiet      TEXT,
       phan_loai           TEXT,
       status              TEXT NOT NULL DEFAULT '${STATUS.CHO_GAN}',
-      nguoi_giao_id       TEXT REFERENCES users(open_id),
+      nguoi_giao_id       TEXT,
       nguoi_giao_name     TEXT,
-      nguoi_thuc_hien_id  TEXT REFERENCES users(open_id),
+      nguoi_thuc_hien_id  TEXT,
       nguoi_thuc_hien_name TEXT,
       deadline            BIGINT,
       dang_lam            BOOLEAN NOT NULL DEFAULT false,
@@ -41,6 +41,12 @@ async function init() {
     CREATE INDEX IF NOT EXISTS idx_tasks_thuc_hien ON tasks(nguoi_thuc_hien_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_giao ON tasks(nguoi_giao_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+  `);
+
+  // Bỏ ràng buộc khoá ngoại cũ nếu bảng đã được tạo từ lần deploy trước
+  await pool.query(`
+    ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_nguoi_giao_id_fkey;
+    ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_nguoi_thuc_hien_id_fkey;
   `);
 }
 
