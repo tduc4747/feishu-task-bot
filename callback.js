@@ -15,8 +15,9 @@ async function handleCallback(req, res) {
     return res.status(200).json({ challenge: body.challenge });
   }
 
-  // Ack ngay lập tức, không hiện toast "đang xử lý" để tránh cảm giác delay
-  res.sendStatus(200);
+  // Ack ngay lập tức bằng JSON rỗng (không phải sendStatus rỗng) — các thành
+  // phần tương tác như select_static cần body JSON hợp lệ để không báo lỗi client.
+  res.status(200).json({});
 
   try {
     const eventData = body.event || {};
@@ -66,16 +67,19 @@ async function handleCallback(req, res) {
 
       if (!assigneeId) { await sendDM(userId, '⚠️ Vui lòng chọn người thực hiện trước!'); return; }
 
+      const allMembers = await getMediaMembers();
+      const assignee = allMembers.find(m => m.id === assigneeId);
+
       await updateRecord(TASK_TABLE, recordId, {
-        [COLS.NGUOI_THUC_HIEN]: [{ id: assigneeId }],
+        [COLS.NGUOI_THUC_HIEN]: [{ id: assigneeId, name: assignee?.name }],
         [COLS.TRANG_THAI]: STATUS.DANG_CHO,
       });
 
-      const [task, pendingTasks, members] = await Promise.all([
+      const [task, pendingTasks] = await Promise.all([
         getRecord(TASK_TABLE, recordId),
         getPendingTasks(),
-        getMediaMembers(),
       ]);
+      const members = allMembers;
       const taskName = formatText(task.fields[COLS.TASK_NAME]);
       const sku = formatText(task.fields[COLS.SKU]);
 
