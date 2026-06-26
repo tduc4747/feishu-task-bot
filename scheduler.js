@@ -1,48 +1,11 @@
 const cron = require('node-cron');
 const { sendCard } = require('./helpers');
-const { getAllTasks, getMyTasks, getTeamList, getUserRole } = require('./bitable');
+const { getAllTasks, getMediaMembers, getAdminIds } = require('./db');
+const { syncAllTasksToBitable } = require('./bitable');
 const { cardMorningMedia, cardMorningAdmin } = require('./cards');
 const config = require('./config');
 
-const { STATUS, COLS, TEAM_COLS, SCHEDULE } = config;
-
-// ─── Lấy tất cả media members kèm open_id ───────────────────────
-async function getMediaMembersWithId() {
-  const teamList = await getTeamList();
-  const members = [];
-
-  for (const row of teamList) {
-    for (const col of [TEAM_COLS.EDITOR, TEAM_COLS.DESIGNER]) {
-      const val = row.fields[col];
-      if (!val || !Array.isArray(val)) continue;
-      for (const u of val) {
-        if (u.id && !members.find(m => m.id === u.id)) {
-          members.push({ id: u.id, name: u.name || u.id });
-        }
-      }
-    }
-  }
-
-  return members;
-}
-
-// ─── Lấy admin open_id ──────────────────────────────────────────
-async function getAdminIds() {
-  const teamList = await getTeamList();
-  const admins = [];
-
-  for (const row of teamList) {
-    const val = row.fields[TEAM_COLS.ADMIN];
-    if (!val || !Array.isArray(val)) continue;
-    for (const u of val) {
-      if (u.id && !admins.find(a => a.id === u.id)) {
-        admins.push({ id: u.id, name: u.name || u.id });
-      }
-    }
-  }
-
-  return admins;
-}
+const { STATUS, COLS, SCHEDULE } = config;
 
 // ─── Gửi thông báo sáng ─────────────────────────────────────────
 async function sendMorningNotifications() {
@@ -53,7 +16,7 @@ async function sendMorningNotifications() {
     const activeStatuses = [STATUS.DANG_CHO, STATUS.DANG_LAM, STATUS.CHO_CHECK];
 
     // ── Thông báo cho từng media ─────────────────────
-    const mediaMembers = await getMediaMembersWithId();
+    const mediaMembers = await getMediaMembers();
 
     for (const member of mediaMembers) {
       const myTasks = allTasks.filter(t => {
@@ -89,6 +52,16 @@ async function sendMorningNotifications() {
   }
 }
 
+// ─── Đồng bộ Postgres -> Bitable định kỳ (chỉ để xem bằng spreadsheet) ───
+async function runBitableSync() {
+  try {
+    await syncAllTasksToBitable();
+    console.log('Bitable sync xong.');
+  } catch (err) {
+    console.error('Bitable sync lỗi:', err.message);
+  }
+}
+
 // ─── Khởi động scheduler ────────────────────────────────────────
 function startScheduler() {
   const { HOUR, MINUTE } = SCHEDULE;
@@ -98,7 +71,10 @@ function startScheduler() {
     timezone: SCHEDULE.TIMEZONE
   });
 
-  console.log(`Scheduler started: daily at ${HOUR}:${MINUTE.toString().padStart(2,'0')} ${SCHEDULE.TIMEZONE}`);
+  // Đồng bộ Bitable mỗi 15 phút (chạy nền, không ảnh hưởng tốc độ bot)
+  cron.schedule('*/15 * * * *', runBitableSync);
+
+  console.log(`Scheduler started: daily at ${HOUR}:${MINUTE.toString().padStart(2,'0')} ${SCHEDULE.TIMEZONE}, Bitable sync every 15min`);
 }
 
 module.exports = { startScheduler, sendMorningNotifications };

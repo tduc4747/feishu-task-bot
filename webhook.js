@@ -1,6 +1,41 @@
-const { sendDM, sendCard } = require('./helpers');
-const { getUserRole, getMyTasks, getTasksBySale, getPendingTasks, getMediaMembers, getWorkload } = require('./bitable');
+const { sendDM, sendCard, formatText } = require('./helpers');
+const { getUserRole, getMyTasks, getTasksBySale, getPendingTasks, getMediaMembers, getWorkload } = require('./db');
+const db = require('./db');
+const { getRecord: getBitableRecord } = require('./bitable-legacy');
 const { cardMainMenu, cardMediaTasks, cardSaleTasks, cardPendingTasks, cardWorkload } = require('./cards');
+const config = require('./config');
+
+const { COLS } = config;
+const TASK_TABLE = config.TABLE.TASK;
+
+// ─── Sale gửi task mới qua form Base -> ghi ngay vào Postgres ───
+// Lưu ý: cần bật event subscription "Record Changed" cho bảng TASK trong
+// Feishu Developer Console, trỏ về route nhận event này (xem index.js).
+async function handleNewBitableRecord(event) {
+  const actions = event.action_list || [];
+  for (const act of actions) {
+    if (act.action_type !== 'AddRecord' && act.action_type !== 'add_record') continue;
+    const bitableRecordId = act.record_id;
+    if (!bitableRecordId) continue;
+
+    const record = await getBitableRecord(TASK_TABLE, bitableRecordId);
+    if (!record) continue;
+    const f = record.fields;
+    const nguoiGiao = Array.isArray(f[COLS.NGUOI_GIAO]) ? f[COLS.NGUOI_GIAO][0] : null;
+
+    await db.createTask({
+      taskName: formatText(f[COLS.TASK_NAME]),
+      sku: formatText(f[COLS.SKU]),
+      moTaNgan: formatText(f[COLS.MO_TA_NGAN]),
+      moTaChiTiet: formatText(f[COLS.MO_TA_CHI_TIET]),
+      phanLoai: formatText(f[COLS.PHAN_LOAI]),
+      deadline: f[COLS.DEADLINE] || null,
+      nguoiGiaoId: nguoiGiao?.id || null,
+      nguoiGiaoName: nguoiGiao?.name || null,
+      bitableRecordId,
+    });
+  }
+}
 
 // ─── Xử lý tin nhắn + menu click ────────────────────────────────
 async function handleWebhook(req, res) {
@@ -39,17 +74,15 @@ async function handleWebhook(req, res) {
       userId = event.operator?.operator_id?.open_id;
       action = event.event_key;
 
+    } else if (eventType === 'drive.file.bitable_record_changed_v1') {
+      if (event.table_id === TASK_TABLE) await handleNewBitableRecord(event);
+      return;
+
     } else {
       return;
     }
 
     if (!userId) return;
-
-    // ─── Gửi loading ngay khi có action tốn thời gian ──────────
-    const HEAVY_ACTIONS = ['sale_my_tasks', 'media_my_tasks', 'admin_pending_tasks', 'admin_workload'];
-    if (HEAVY_ACTIONS.includes(action)) {
-      await sendDM(userId, '⏳ Đang tải dữ liệu...');
-    }
 
     // ─── Lấy role của user ──────────────────────────
     const roles = await getUserRole(userId);
@@ -68,7 +101,7 @@ async function handleWebhook(req, res) {
         return;
       }
       const tasks = await getTasksBySale(userId);
-      await sendCard(userId, cardSaleTasks(tasks, null));
+      await sendCard(userId, cardSaleTasks(tasks));
 
     } else if (action === 'media_my_tasks') {
       if (!roles.includes('media') && !roles.includes('admin')) {
@@ -76,7 +109,7 @@ async function handleWebhook(req, res) {
         return;
       }
       const tasks = await getMyTasks(userId);
-      await sendCard(userId, cardMediaTasks(tasks, null));
+      await sendCard(userId, cardMediaTasks(tasks));
 
     } else if (action === 'admin_pending_tasks') {
       if (!roles.includes('admin')) {

@@ -1,5 +1,6 @@
 const { sendDM, sendCard, updateCard, formatText } = require('./helpers');
-const { getUserRole, getMyTasks, getTasksBySale, getPendingTasks, getMediaMembers, updateRecord, getRecord } = require('./bitable');
+const { getUserRole, getMyTasks, getTasksBySale, getPendingTasks, getMediaMembers, getWorkload, updateRecord, getRecord } = require('./db');
+const { syncTaskToBitable } = require('./bitable');
 const { cardMediaTasks, cardSaleTasks, cardPendingTasks, cardSaleApprove, cardWorkload } = require('./cards');
 const config = require('./config');
 
@@ -52,7 +53,6 @@ async function handleCallback(req, res) {
 
     } else if (action === 'admin_workload') {
       if (!roles.includes('admin')) { await sendDM(userId, '⛔ Chức năng này chỉ dành cho Admin.'); return; }
-      const { getWorkload } = require('./bitable');
       const workload = await getWorkload();
       await sendCard(userId, cardWorkload(workload));
 
@@ -90,6 +90,8 @@ async function handleCallback(req, res) {
       const taskName = formatText(task.fields[COLS.TASK_NAME]);
       const sku = formatText(task.fields[COLS.SKU]);
 
+      syncTaskToBitable(task); // nền, không chờ
+
       await Promise.all([
         sendDM(assigneeId, `📌 Bạn vừa được gán task mới!\nTask: ${taskName}\nSKU: ${sku}\nNhắn "hi" để xem chi tiết.`),
         sendDM(userId, `✅ Đã gán task thành công.`),
@@ -108,6 +110,8 @@ async function handleCallback(req, res) {
       const saleId = task.fields[COLS.NGUOI_GIAO]?.[0]?.id;
       const taskName = formatText(task.fields[COLS.TASK_NAME]);
       const sku = formatText(task.fields[COLS.SKU]);
+
+      syncTaskToBitable(task); // nền, không chờ
 
       await Promise.all([
         cardMessageId ? updateCard(cardMessageId, cardMediaTasks(tasks)) : null,
@@ -129,6 +133,8 @@ async function handleCallback(req, res) {
       const taskName = formatText(task.fields[COLS.TASK_NAME]);
       const sku = formatText(task.fields[COLS.SKU]);
       const notifyId = saleId || userId;
+
+      syncTaskToBitable(task); // nền, không chờ
 
       await Promise.all([
         cardMessageId ? updateCard(cardMessageId, cardMediaTasks(tasks)) : null,
@@ -154,6 +160,8 @@ async function handleCallback(req, res) {
       const taskName = formatText(task.fields[COLS.TASK_NAME]);
       const sku = formatText(task.fields[COLS.SKU]);
       const msg = `✅ Task "${taskName} | ${sku}" đã hoàn thành!`;
+
+      syncTaskToBitable(task); // nền, không chờ
 
       await Promise.all([
         cardMessageId
