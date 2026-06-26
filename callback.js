@@ -14,13 +14,8 @@ async function handleCallback(req, res) {
     return res.status(200).json({ challenge: body.challenge });
   }
 
-  // select_static changes don't need a toast — just acknowledge
-  const actionTag = body.event?.action?.tag || body.action?.tag;
-  if (actionTag === 'select_static') {
-    res.sendStatus(200);
-  } else {
-    res.json({ toast: { type: 'info', content: '⏳ Đang xử lý...' } });
-  }
+  // Ack ngay lập tức, không hiện toast "đang xử lý" để tránh cảm giác delay
+  res.sendStatus(200);
 
   try {
     const eventData = body.event || {};
@@ -42,12 +37,12 @@ async function handleCallback(req, res) {
     if (action === 'sale_my_tasks') {
       if (!roles.includes('sale')) { await sendDM(userId, '⛔ Bạn không có quyền truy cập.'); return; }
       const tasks = await getTasksBySale(userId);
-      await sendCard(userId, cardSaleTasks(tasks, messageId));
+      await sendCard(userId, cardSaleTasks(tasks));
 
     } else if (action === 'media_my_tasks') {
       if (!roles.includes('media') && !roles.includes('admin')) { await sendDM(userId, '⛔ Bạn không có quyền truy cập.'); return; }
       const tasks = await getMyTasks(userId);
-      await sendCard(userId, cardMediaTasks(tasks, messageId));
+      await sendCard(userId, cardMediaTasks(tasks));
 
     } else if (action === 'admin_pending_tasks') {
       if (!roles.includes('admin')) { await sendDM(userId, '⛔ Chức năng này chỉ dành cho Admin.'); return; }
@@ -87,16 +82,19 @@ async function handleCallback(req, res) {
         [COLS.TRANG_THAI]: STATUS.DANG_CHO,
       });
 
-      const task = await getRecord(TASK_TABLE, recordId);
+      const [task, pendingTasks, members] = await Promise.all([
+        getRecord(TASK_TABLE, recordId),
+        getPendingTasks(),
+        getMediaMembers(),
+      ]);
       const taskName = formatText(task.fields[COLS.TASK_NAME]);
       const sku = formatText(task.fields[COLS.SKU]);
 
-      await sendDM(assigneeId, `📌 Bạn vừa được gán task mới!\nTask: ${taskName}\nSKU: ${sku}\nNhắn "hi" để xem chi tiết.`);
-      await sendDM(userId, `✅ Đã gán task thành công.`);
-
-      const pendingTasks = await getPendingTasks();
-      const members = await getMediaMembers();
-      if (messageId) await updateCard(messageId, cardPendingTasks(pendingTasks, members));
+      await Promise.all([
+        sendDM(assigneeId, `📌 Bạn vừa được gán task mới!\nTask: ${taskName}\nSKU: ${sku}\nNhắn "hi" để xem chi tiết.`),
+        sendDM(userId, `✅ Đã gán task thành công.`),
+        messageId ? updateCard(messageId, cardPendingTasks(pendingTasks, members)) : null,
+      ]);
 
     } else if (action === 'start_task') {
       const recordId = eventData.action?.value?.record_id;
@@ -106,69 +104,65 @@ async function handleCallback(req, res) {
         [COLS.DANG_LAM]: true,
       });
 
-      const task = await getRecord(TASK_TABLE, recordId);
+      const [task, tasks] = await Promise.all([getRecord(TASK_TABLE, recordId), getMyTasks(userId)]);
       const saleId = task.fields[COLS.NGUOI_GIAO]?.[0]?.id;
       const taskName = formatText(task.fields[COLS.TASK_NAME]);
       const sku = formatText(task.fields[COLS.SKU]);
 
-      if (saleId && saleId !== userId) await sendDM(saleId, `🔄 Task "${taskName} | ${sku}" đã được bắt đầu thực hiện.`);
-      await sendDM(userId, `▶️ Đã bắt đầu làm task "${taskName}"!`);
-
-      const tasks = await getMyTasks(userId);
-      if (cardMessageId) await updateCard(cardMessageId, cardMediaTasks(tasks, cardMessageId));
+      await Promise.all([
+        cardMessageId ? updateCard(cardMessageId, cardMediaTasks(tasks)) : null,
+        sendDM(userId, `▶️ Đã bắt đầu làm task "${taskName}"!`),
+        (saleId && saleId !== userId) ? sendDM(saleId, `🔄 Task "${taskName} | ${sku}" đã được bắt đầu thực hiện.`) : null,
+      ]);
 
     } else if (action === 'pending_check') {
       const recordId = eventData.action?.value?.record_id;
 
+      // Giữ nguyên DANG_LAM:true (ô kiểm cũ không bị bỏ), chỉ thêm CHO_CHECK
       await updateRecord(TASK_TABLE, recordId, {
         [COLS.TRANG_THAI]: STATUS.CHO_CHECK,
-        [COLS.DANG_LAM]: false,
         [COLS.CHO_CHECK]: true,
       });
 
-      const task = await getRecord(TASK_TABLE, recordId);
+      const [task, tasks] = await Promise.all([getRecord(TASK_TABLE, recordId), getMyTasks(userId)]);
       const saleId = task.fields[COLS.NGUOI_GIAO]?.[0]?.id;
       const taskName = formatText(task.fields[COLS.TASK_NAME]);
       const sku = formatText(task.fields[COLS.SKU]);
-
-      // Gửi card approve cho sale (kể cả khi test tự giao cho mình)
       const notifyId = saleId || userId;
-      await sendCard(notifyId, cardSaleApprove(recordId, taskName, sku));
-      if (saleId && saleId !== userId) {
-        await sendDM(userId, `👀 Đã chuyển sang "Chờ check". Đang chờ sale duyệt.`);
-      }
 
-      const tasks = await getMyTasks(userId);
-      if (cardMessageId) await updateCard(cardMessageId, cardMediaTasks(tasks, cardMessageId));
+      await Promise.all([
+        cardMessageId ? updateCard(cardMessageId, cardMediaTasks(tasks)) : null,
+        sendCard(notifyId, cardSaleApprove(recordId, taskName, sku)),
+        (saleId && saleId !== userId) ? sendDM(userId, `👀 Đã chuyển sang "Chờ check". Đang chờ sale duyệt.`) : null,
+      ]);
 
     } else if (action === 'complete_task') {
       const recordId = eventData.action?.value?.record_id;
 
+      // Giữ nguyên DANG_LAM:true, CHO_CHECK:true (ô kiểm cũ không bị bỏ), chỉ thêm DONE
       await updateRecord(TASK_TABLE, recordId, {
         [COLS.TRANG_THAI]: STATUS.HOAN_THANH,
-        [COLS.DANG_LAM]: false,
-        [COLS.CHO_CHECK]: false,
         [COLS.DONE]: true,
       });
 
-      const task = await getRecord(TASK_TABLE, recordId);
+      const [task, tasks] = await Promise.all([
+        getRecord(TASK_TABLE, recordId),
+        roles.includes('sale') ? getTasksBySale(userId) : getMyTasks(userId),
+      ]);
       const mediaId = task.fields[COLS.NGUOI_THUC_HIEN]?.[0]?.id;
       const saleId = task.fields[COLS.NGUOI_GIAO]?.[0]?.id;
       const taskName = formatText(task.fields[COLS.TASK_NAME]);
       const sku = formatText(task.fields[COLS.SKU]);
       const msg = `✅ Task "${taskName} | ${sku}" đã hoàn thành!`;
 
-      await sendDM(userId, msg);
-      if (saleId && saleId !== userId) await sendDM(saleId, msg);
-      if (mediaId && mediaId !== userId) await sendDM(mediaId, msg);
-
-      if (roles.includes('sale')) {
-        const tasks = await getTasksBySale(userId);
-        if (cardMessageId) await updateCard(cardMessageId, cardSaleTasks(tasks, cardMessageId));
-      } else {
-        const tasks = await getMyTasks(userId);
-        if (cardMessageId) await updateCard(cardMessageId, cardMediaTasks(tasks, cardMessageId));
-      }
+      await Promise.all([
+        cardMessageId
+          ? updateCard(cardMessageId, roles.includes('sale') ? cardSaleTasks(tasks) : cardMediaTasks(tasks))
+          : null,
+        sendDM(userId, msg),
+        (saleId && saleId !== userId) ? sendDM(saleId, msg) : null,
+        (mediaId && mediaId !== userId) ? sendDM(mediaId, msg) : null,
+      ]);
     }
 
   } catch (err) {

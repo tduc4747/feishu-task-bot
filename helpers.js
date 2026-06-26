@@ -3,13 +3,21 @@ const axios = require('axios');
 const FEISHU_APP_ID = process.env.FEISHU_APP_ID;
 const FEISHU_APP_SECRET = process.env.FEISHU_APP_SECRET;
 
-// ─── Lấy tenant access token ────────────────────────────────────
+// ─── Lấy tenant access token (cached, token sống ~2h) ───────────
+let cachedToken = null;
+let tokenExpiresAt = 0;
+
 async function getTenantToken() {
+  if (cachedToken && Date.now() < tokenExpiresAt) return cachedToken;
+
   const res = await axios.post('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
     app_id: FEISHU_APP_ID,
     app_secret: FEISHU_APP_SECRET
   });
-  return res.data.tenant_access_token;
+  cachedToken = res.data.tenant_access_token;
+  // Trừ hao 5 phút để tránh dùng token sát hạn
+  tokenExpiresAt = Date.now() + (res.data.expire - 300) * 1000;
+  return cachedToken;
 }
 
 // ─── Gửi tin nhắn text (DM) ─────────────────────────────────────
