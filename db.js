@@ -169,6 +169,13 @@ async function getUserRole(openId) {
   return res.rows[0]?.roles || [];
 }
 
+// ─── Kiểm tra user còn trong DS_TEAM hiện tại không (tránh nhắn nhầm người đã bị xoá) ───
+async function userExists(openId) {
+  if (!openId) return false;
+  const res = await pool.query('SELECT 1 FROM users WHERE open_id = $1', [openId]);
+  return res.rows.length > 0;
+}
+
 async function getMediaMembers() {
   const res = await pool.query(`SELECT open_id AS id, name FROM users WHERE 'media' = ANY(roles)`);
   return res.rows;
@@ -211,5 +218,5 @@ module.exports = {
   pool, init,
   getAllTasks, getRecord, getMyTasks, getTasksBySale, getPendingTasks,
   updateRecord, createTask,
-  upsertUser, getUserRole, getMediaMembers, getAdminIds, getWorkload,
+  upsertUser, getUserRole, userExists, getMediaMembers, getAdminIds, getWorkload,
 };

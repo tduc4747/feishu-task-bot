@@ -1,5 +1,5 @@
 const { sendDM, sendCard, updateCard, formatText } = require('./helpers');
-const { getUserRole, getMyTasks, getTasksBySale, getPendingTasks, getMediaMembers, getWorkload, updateRecord, getRecord } = require('./db');
+const { getUserRole, userExists, getMyTasks, getTasksBySale, getPendingTasks, getMediaMembers, getWorkload, updateRecord, getRecord } = require('./db');
 const { syncTaskToBitable } = require('./bitable');
 const { cardMediaTasks, cardSaleTasks, cardPendingTasks, cardSaleApprove, cardWorkload } = require('./cards');
 const config = require('./config');
@@ -103,13 +103,14 @@ async function handleCallback(req, res) {
       const saleId = task.fields[COLS.NGUOI_GIAO]?.[0]?.id;
       const taskName = formatText(task.fields[COLS.TASK_NAME]);
       const sku = formatText(task.fields[COLS.SKU]);
+      const notifySale = saleId && saleId !== userId && await userExists(saleId);
 
       syncTaskToBitable(task); // nền, không chờ
 
       await Promise.all([
         cardMessageId ? updateCard(cardMessageId, cardMediaTasks(tasks)) : null,
         sendDM(userId, `▶️ Đã bắt đầu làm task "${taskName}"!`),
-        (saleId && saleId !== userId) ? sendDM(saleId, `🔄 Task "${taskName} | ${sku}" đã được bắt đầu thực hiện.`) : null,
+        notifySale ? sendDM(saleId, `🔄 Task "${taskName} | ${sku}" đã được bắt đầu thực hiện.`) : null,
       ]);
 
     } else if (action === 'pending_check') {
@@ -125,14 +126,15 @@ async function handleCallback(req, res) {
       const saleId = task.fields[COLS.NGUOI_GIAO]?.[0]?.id;
       const taskName = formatText(task.fields[COLS.TASK_NAME]);
       const sku = formatText(task.fields[COLS.SKU]);
-      const notifyId = saleId || userId;
+      const saleActive = saleId && await userExists(saleId);
+      const notifyId = saleActive ? saleId : userId;
 
       syncTaskToBitable(task); // nền, không chờ
 
       await Promise.all([
         cardMessageId ? updateCard(cardMessageId, cardMediaTasks(tasks)) : null,
         sendCard(notifyId, cardSaleApprove(recordId, taskName, sku)),
-        (saleId && saleId !== userId) ? sendDM(userId, `👀 Đã chuyển sang "Chờ check". Đang chờ sale duyệt.`) : null,
+        (saleActive && saleId !== userId) ? sendDM(userId, `👀 Đã chuyển sang "Chờ check". Đang chờ sale duyệt.`) : null,
       ]);
 
     } else if (action === 'complete_task') {
@@ -153,6 +155,10 @@ async function handleCallback(req, res) {
       const taskName = formatText(task.fields[COLS.TASK_NAME]);
       const sku = formatText(task.fields[COLS.SKU]);
       const msg = `✅ Task "${taskName} | ${sku}" đã hoàn thành!`;
+      const [notifySale, notifyMedia] = await Promise.all([
+        saleId && saleId !== userId ? userExists(saleId) : false,
+        mediaId && mediaId !== userId ? userExists(mediaId) : false,
+      ]);
 
       syncTaskToBitable(task); // nền, không chờ
 
@@ -161,8 +167,8 @@ async function handleCallback(req, res) {
           ? updateCard(cardMessageId, roles.includes('sale') ? cardSaleTasks(tasks) : cardMediaTasks(tasks))
           : null,
         sendDM(userId, msg),
-        (saleId && saleId !== userId) ? sendDM(saleId, msg) : null,
-        (mediaId && mediaId !== userId) ? sendDM(mediaId, msg) : null,
+        notifySale ? sendDM(saleId, msg) : null,
+        notifyMedia ? sendDM(mediaId, msg) : null,
       ]);
     }
 
