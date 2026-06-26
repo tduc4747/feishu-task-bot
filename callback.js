@@ -14,7 +14,8 @@ async function handleCallback(req, res) {
     return res.status(200).json({ challenge: body.challenge });
   }
 
-  res.sendStatus(200);
+  // Respond immediately to avoid Feishu timeout (error 200672) and show loading toast
+  res.json({ toast: { type: 'info', content: '⏳ Đang xử lý...' } });
 
   try {
     const eventData = body.event || {};

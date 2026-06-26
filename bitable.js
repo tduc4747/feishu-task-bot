@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { getTenantToken } = require('./helpers');
+const { getTenantToken, formatText } = require('./helpers');
 const config = require('./config');
 
 const BITABLE_APP_TOKEN = process.env.BITABLE_APP_TOKEN;
@@ -69,7 +69,7 @@ async function getMyTasks(openId) {
     const nguoiThucHien = t.fields[COLS.NGUOI_THUC_HIEN];
     if (!nguoiThucHien || !Array.isArray(nguoiThucHien)) return false;
     const isAssigned = nguoiThucHien.some(u => u.id === openId || u.open_id === openId);
-    const status = t.fields[COLS.TRANG_THAI];
+    const status = formatText(t.fields[COLS.TRANG_THAI]);
     const isActive = status !== STATUS.HOAN_THANH && status !== STATUS.CHO_GAN;
     return isAssigned && isActive;
   });
@@ -83,17 +83,20 @@ async function getTasksBySale(openId) {
     const nguoiGiao = t.fields[COLS.NGUOI_GIAO];
     if (!nguoiGiao || !Array.isArray(nguoiGiao)) return false;
     const isSender = nguoiGiao.some(u => u.id === openId || u.open_id === openId);
-    const status = t.fields[COLS.TRANG_THAI];
+    const status = formatText(t.fields[COLS.TRANG_THAI]);
     const isActive = status !== STATUS.HOAN_THANH;
     return isSender && isActive;
   });
 }
 
-// ─── Lấy task chờ gán (admin) ───────────────────────────────────
+// ─── Lấy task chờ gán (admin) - task chưa có người thực hiện ────
 async function getPendingTasks() {
   const tasks = await getAllTasks();
-  const { STATUS, COLS } = config;
-  return tasks.filter(t => t.fields[COLS.TRANG_THAI] === STATUS.CHO_GAN);
+  const { COLS } = config;
+  return tasks.filter(t => {
+    const assignee = t.fields[COLS.NGUOI_THUC_HIEN];
+    return !assignee || !Array.isArray(assignee) || assignee.length === 0;
+  });
 }
 
 // ─── Lấy danh sách team từ DS TEAM ──────────────────────────────
@@ -158,7 +161,7 @@ async function getWorkload() {
 
   for (const t of tasks) {
     const nguoiThucHien = t.fields[COLS.NGUOI_THUC_HIEN];
-    const status = t.fields[COLS.TRANG_THAI];
+    const status = formatText(t.fields[COLS.TRANG_THAI]);
     if (!nguoiThucHien || !Array.isArray(nguoiThucHien)) continue;
     if (!activeStatuses.includes(status)) continue;
 

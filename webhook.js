@@ -45,6 +45,12 @@ async function handleWebhook(req, res) {
 
     if (!userId) return;
 
+    // ─── Gửi loading ngay khi có action tốn thời gian ──────────
+    const HEAVY_ACTIONS = ['sale_my_tasks', 'media_my_tasks', 'admin_pending_tasks', 'admin_workload'];
+    if (HEAVY_ACTIONS.includes(action)) {
+      await sendDM(userId, '⏳ Đang tải dữ liệu...');
+    }
+
     // ─── Lấy role của user ──────────────────────────
     const roles = await getUserRole(userId);
     if (roles.length === 0) {
