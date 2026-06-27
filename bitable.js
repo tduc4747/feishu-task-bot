@@ -22,13 +22,23 @@ async function syncTaskToBitable(task) {
       [COLS.DEADLINE]: task.fields[COLS.DEADLINE],
     };
 
+    let shouldCreate = !task.bitable_record_id;
+
     if (task.bitable_record_id) {
-      await axios.put(
-        `https://open.feishu.cn/open-apis/bitable/v1/apps/${BITABLE_APP_TOKEN}/tables/${TASK_TABLE}/records/${task.bitable_record_id}`,
-        { fields },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-    } else {
+      try {
+        await axios.put(
+          `https://open.feishu.cn/open-apis/bitable/v1/apps/${BITABLE_APP_TOKEN}/tables/${TASK_TABLE}/records/${task.bitable_record_id}`,
+          { fields },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      } catch (err) {
+        // Record cũ không còn tồn tại trong bảng hiện tại (vd vừa đổi sang Bitable khác) -> tạo lại mới
+        if (err.response?.status === 404 || err.response?.data?.code === 1254043) shouldCreate = true;
+        else throw err;
+      }
+    }
+
+    if (shouldCreate) {
       const res = await axios.post(
         `https://open.feishu.cn/open-apis/bitable/v1/apps/${BITABLE_APP_TOKEN}/tables/${TASK_TABLE}/records`,
         { fields },
