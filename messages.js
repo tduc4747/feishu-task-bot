@@ -25,8 +25,12 @@ const DEFAULTS = {
     content: '👀 Đã chuyển sang "Chờ check". Đang chờ sale duyệt.',
   },
   task_completed: {
-    title: 'Báo hoàn thành task',
-    content: '✅ Task "$ten_task | $sku" đã hoàn thành!',
+    title: 'Báo hoàn thành task (gửi cho người giao)',
+    content: '✅ $ten_nguoi_thuc_hien đã hoàn thành task "$ten_task | $sku" của bạn!',
+  },
+  task_completed_for_media: {
+    title: 'Báo hoàn thành task (gửi cho người thực hiện)',
+    content: '🎉 Bạn đã hoàn thành task "$ten_task | $sku"! Cảm ơn bạn nhiều.',
   },
   task_new_for_admin: {
     title: 'Báo admin có task mới cần gán',
