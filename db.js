@@ -174,6 +174,11 @@ async function updateRecord(_tableId, recordId, fields) {
   await pool.query(`UPDATE tasks SET ${sets.join(', ')} WHERE id = $${i}`, values);
 }
 
+async function deleteTask(recordId) {
+  const res = await pool.query('DELETE FROM tasks WHERE id = $1 RETURNING bitable_record_id', [recordId]);
+  return res.rows[0] || null;
+}
+
 async function createTask({ taskName, sku, moTaChiTiet, deadline, nguoiGiaoId, nguoiGiaoName, attachmentUrl, bitableRecordId }) {
   const res = await pool.query(
     `INSERT INTO tasks (task_name, sku, mo_ta_chi_tiet, deadline, nguoi_giao_id, nguoi_giao_name, attachment_url, status, bitable_record_id)
@@ -260,6 +265,6 @@ const INTERNAL_FIELDS = { COMPLETED_AT: '_completed_at', ATTACHMENT_URL: '_attac
 module.exports = {
   pool, init, INTERNAL_FIELDS,
   getAllTasks, getRecord, getMyTasks, getTasksBySale, getPendingTasks, getCompletedTasks,
-  updateRecord, createTask,
+  updateRecord, createTask, deleteTask,
   upsertUser, getUserRole, getUserInfo, userExists, getMediaMembers, getAdminIds, getWorkload, getTeamMembers,
 };

@@ -79,17 +79,76 @@ async function renderMyTasks() {
   });
 }
 
+function editTaskForm(t) {
+  const f = t.fields;
+  const deadlineVal = f[COLS.DEADLINE] ? new Date(Number(f[COLS.DEADLINE])).toISOString().slice(0, 10) : '';
+  return `
+    <div class="card" data-id="${t.record_id}">
+      <label>Yêu cầu</label>
+      <input data-edit="taskName" maxlength="50" value="${(f[COLS.TASK_NAME] || '').replace(/"/g, '&quot;')}" />
+      <label>SKU</label>
+      <input data-edit="sku" value="${(f[COLS.SKU] || '').replace(/"/g, '&quot;')}" />
+      <label>Mô tả chi tiết</label>
+      <textarea data-edit="moTaChiTiet" rows="3">${f[COLS.MO_TA_CHI_TIET] || ''}</textarea>
+      <label>Deadline</label>
+      <input type="date" data-edit="deadline" value="${deadlineVal}" />
+      <div class="error" data-edit-error></div>
+      <div class="actions">
+        <button class="primary" data-act="save-edit">Lưu</button>
+        <button class="secondary" data-act="cancel-edit">Huỷ</button>
+      </div>
+    </div>`;
+}
+
 async function renderSentTasks() {
   const tasks = await window.Api.getSentTasks();
   if (tasks.length === 0) { mainEl.innerHTML = '<div class="empty">✅ Không có task nào.</div>'; return; }
   mainEl.innerHTML = grid(tasks.map(t => {
     const status = t.fields[COLS.TRANG_THAI];
-    const action = status === STATUS.CHO_CHECK ? `<button class="primary" data-act="complete">✅ Hoàn thành</button>` : '';
-    return taskCard(t, { actionsHtml: action ? `<div class="actions">${action}</div>` : '', person: 'thuchien', showMota: true });
+    const completeBtn = status === STATUS.CHO_CHECK ? `<button class="primary" data-act="complete">✅ Hoàn thành</button>` : '';
+    const actionsHtml = `<div class="actions">${completeBtn}
+      <button class="secondary" data-act="edit">Sửa</button>
+      <button class="secondary" data-act="delete">Xoá</button>
+    </div>`;
+    return taskCard(t, { actionsHtml, person: 'thuchien', showMota: true });
   }).join(''));
-  mainEl.querySelectorAll('[data-act]').forEach(btn => {
-    btn.onclick = async () => { await window.Api.completeTask(btn.closest('.card').dataset.id); renderSentTasks(); };
+
+  mainEl.querySelectorAll('.card').forEach(card => {
+    const id = card.dataset.id;
+    card.querySelector('[data-act="complete"]')?.addEventListener('click', async () => {
+      await window.Api.completeTask(id); renderSentTasks();
+    });
+    card.querySelector('[data-act="delete"]')?.addEventListener('click', async () => {
+      if (!confirm('Xoá task này? Không thể hoàn tác.')) return;
+      await window.Api.deleteTask(id); renderSentTasks();
+    });
+    card.querySelector('[data-act="edit"]')?.addEventListener('click', () => {
+      const task = tasks.find(t => t.record_id === id);
+      card.outerHTML = editTaskForm(task);
+      bindEditForm(id, renderSentTasks);
+    });
   });
+}
+
+function bindEditForm(id, onDone) {
+  const card = mainEl.querySelector(`.card[data-id="${id}"]`);
+  card.querySelector('[data-act="cancel-edit"]').onclick = () => onDone();
+  card.querySelector('[data-act="save-edit"]').onclick = async () => {
+    const errEl = card.querySelector('[data-edit-error]');
+    errEl.textContent = '';
+    const deadlineVal = card.querySelector('[data-edit="deadline"]').value;
+    try {
+      await window.Api.updateTask(id, {
+        taskName: card.querySelector('[data-edit="taskName"]').value,
+        sku: card.querySelector('[data-edit="sku"]').value,
+        moTaChiTiet: card.querySelector('[data-edit="moTaChiTiet"]').value,
+        deadline: deadlineVal ? new Date(deadlineVal).getTime() : null,
+      });
+      onDone();
+    } catch (err) {
+      errEl.textContent = err.message;
+    }
+  };
 }
 
 async function renderPendingTasks() {

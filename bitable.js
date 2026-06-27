@@ -81,4 +81,18 @@ async function syncAllTasksToBitable() {
   }
 }
 
-module.exports = { syncTaskToBitable, syncAllTasksToBitable };
+// ─── Xoá record trên Bitable khi task bị xoá khỏi DB ───
+async function deleteRecordFromBitable(bitableRecordId) {
+  if (!bitableRecordId) return;
+  try {
+    const token = await getTenantToken();
+    await axios.delete(
+      `https://open.feishu.cn/open-apis/bitable/v1/apps/${BITABLE_APP_TOKEN}/tables/${TASK_TABLE}/records/${bitableRecordId}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+  } catch (err) {
+    console.error('deleteRecordFromBitable lỗi (bỏ qua):', err.response?.data || err.message);
+  }
+}
+
+module.exports = { syncTaskToBitable, syncAllTasksToBitable, deleteRecordFromBitable };

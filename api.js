@@ -80,6 +80,9 @@ router.post('/tasks', auth.requireRole('sale', 'admin'), async (req, res) => {
     if (!taskName || !sku || !deadline) {
       return res.status(400).json({ error: 'Thiếu thông tin bắt buộc' });
     }
+    if (taskName.length > 50) {
+      return res.status(400).json({ error: 'Yêu cầu không được vượt quá 50 ký tự' });
+    }
 
     let giaoId = req.openId;
     let giaoName = null;
@@ -108,11 +111,29 @@ router.post('/tasks', auth.requireRole('sale', 'admin'), async (req, res) => {
   }
 });
 
+// ─── Chỉ admin hoặc đúng người đã giao task mới được sửa/xoá task đó ───
+async function assertOwnsTask(req, res) {
+  const task = await db.getRecord(TASK_TABLE, req.params.id);
+  if (!task) { res.status(404).json({ error: 'Không tìm thấy task' }); return null; }
+  const roles = req.roles || await db.getUserRole(req.openId);
+  const giaoId = task.fields[COLS.NGUOI_GIAO]?.[0]?.id;
+  if (!roles.includes('admin') && giaoId !== req.openId) {
+    res.status(403).json({ error: 'Bạn không có quyền sửa/xoá task này' });
+    return null;
+  }
+  return task;
+}
+
 // ─── Sửa task (field thường) ─────────────────────────────────────────
 router.patch('/tasks/:id', auth.requireRole('sale', 'admin'), async (req, res) => {
   try {
+    if (!(await assertOwnsTask(req, res))) return;
+
     const fields = {};
     const { taskName, sku, moTaChiTiet, deadline, attachmentUrl } = req.body;
+    if (taskName !== undefined && taskName.length > 50) {
+      return res.status(400).json({ error: 'Yêu cầu không được vượt quá 50 ký tự' });
+    }
     if (taskName !== undefined) fields[COLS.TASK_NAME] = taskName;
     if (sku !== undefined) fields[COLS.SKU] = sku;
     if (moTaChiTiet !== undefined) fields[COLS.MO_TA_CHI_TIET] = moTaChiTiet;
@@ -126,6 +147,20 @@ router.patch('/tasks/:id', auth.requireRole('sale', 'admin'), async (req, res) =
   } catch (err) {
     console.error('PATCH /tasks/:id lỗi:', err.message);
     res.status(500).json({ error: 'Cập nhật task thất bại' });
+  }
+});
+
+// ─── Xoá task (Sale tự xoá task mình đã gửi, hoặc admin) ─────────────
+router.delete('/tasks/:id', auth.requireRole('sale', 'admin'), async (req, res) => {
+  try {
+    if (!(await assertOwnsTask(req, res))) return;
+
+    const deleted = await db.deleteTask(req.params.id);
+    require('./bitable').deleteRecordFromBitable(deleted?.bitable_record_id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /tasks/:id lỗi:', err.message);
+    res.status(500).json({ error: 'Xoá task thất bại' });
   }
 });
 
