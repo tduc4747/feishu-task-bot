@@ -26,6 +26,8 @@ function highestRoleLabel(roles) {
   return ROLE_LABEL[top] || '';
 }
 
+function grid(html) { return `<div class="grid">${html}</div>`; }
+
 function setNav(tabs) {
   navEl.innerHTML = '';
   tabs.forEach(t => {
@@ -59,13 +61,13 @@ function taskCard(t, opts = {}) {
 async function renderMyTasks() {
   const tasks = await window.Api.getMyTasks();
   if (tasks.length === 0) { mainEl.innerHTML = '<div class="empty">✅ Không có task nào.</div>'; return; }
-  mainEl.innerHTML = tasks.map(t => {
+  mainEl.innerHTML = grid(tasks.map(t => {
     const status = t.fields[COLS.TRANG_THAI];
     let action = '';
     if (status === STATUS.DANG_CHO) action = `<button class="primary" data-act="start">Bắt đầu làm</button>`;
     else if (status === STATUS.DANG_LAM) action = `<button class="secondary" data-act="pending-check">Chờ check</button>`;
     return taskCard(t, { actionsHtml: action ? `<div class="actions">${action}</div>` : '', person: 'giao', showMota: true });
-  }).join('');
+  }).join(''));
   mainEl.querySelectorAll('[data-act]').forEach(btn => {
     btn.onclick = async () => {
       const id = btn.closest('.card').dataset.id;
@@ -80,11 +82,11 @@ async function renderMyTasks() {
 async function renderSentTasks() {
   const tasks = await window.Api.getSentTasks();
   if (tasks.length === 0) { mainEl.innerHTML = '<div class="empty">✅ Không có task nào.</div>'; return; }
-  mainEl.innerHTML = tasks.map(t => {
+  mainEl.innerHTML = grid(tasks.map(t => {
     const status = t.fields[COLS.TRANG_THAI];
     const action = status === STATUS.CHO_CHECK ? `<button class="primary" data-act="complete">✅ Hoàn thành</button>` : '';
     return taskCard(t, { actionsHtml: action ? `<div class="actions">${action}</div>` : '', person: 'thuchien', showMota: true });
-  }).join('');
+  }).join(''));
   mainEl.querySelectorAll('[data-act]').forEach(btn => {
     btn.onclick = async () => { await window.Api.completeTask(btn.closest('.card').dataset.id); renderSentTasks(); };
   });
@@ -94,7 +96,7 @@ async function renderPendingTasks() {
   const [tasks, members] = await Promise.all([window.Api.getPendingTasks(), window.Api.getTeamMembers()]);
   if (tasks.length === 0) { mainEl.innerHTML = '<div class="empty">✅ Không có task chờ gán.</div>'; return; }
   const mediaMembers = members.filter(m => (m.roles || []).includes('media'));
-  mainEl.innerHTML = tasks.map(t => {
+  mainEl.innerHTML = grid(tasks.map(t => {
     const options = mediaMembers.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
     const actionsHtml = `
       <div class="actions" style="flex-direction:column; align-items:stretch;">
@@ -102,7 +104,7 @@ async function renderPendingTasks() {
         <button class="primary" data-act="assign-confirm" style="margin-top:6px;" disabled>Xác nhận gán</button>
       </div>`;
     return taskCard(t, { actionsHtml, person: 'giao', showStatus: false, showMota: true });
-  }).join('');
+  }).join(''));
   mainEl.querySelectorAll('.card').forEach(card => {
     const sel = card.querySelector('[data-act="assign-select"]');
     const btn = card.querySelector('[data-act="assign-confirm"]');
@@ -118,25 +120,25 @@ async function renderPendingTasks() {
 async function renderWorkload() {
   const workload = await window.Api.getWorkload();
   if (workload.length === 0) { mainEl.innerHTML = '<div class="empty">✅ Team không có task nào.</div>'; return; }
-  mainEl.innerHTML = workload.map(m => `
+  mainEl.innerHTML = grid(workload.map(m => `
     <div class="card">
       <h3>@${m.name}</h3>
       <div class="meta">Đang chờ: ${m.dang_cho} | Đang làm: ${m.dang_lam} | Chờ check: ${m.cho_check} | <b>Tổng: ${m.total}</b></div>
-    </div>`).join('');
+    </div>`).join(''));
 }
 
 async function renderCompleted() {
   const tasks = await window.Api.getCompletedTasks();
   if (tasks.length === 0) { mainEl.innerHTML = '<div class="empty">Chưa có task hoàn thành.</div>'; return; }
-  mainEl.innerHTML = tasks.map(t => `
+  mainEl.innerHTML = grid(tasks.map(t => `
     <div class="card">
       <h3>${t.fields[COLS.TASK_NAME]}</h3>
       <div class="meta">SKU: ${t.fields[COLS.SKU]}</div>
       <div class="meta">👤 Giao: ${userName(t.fields[COLS.NGUOI_GIAO])} → Thực hiện: ${userName(t.fields[COLS.NGUOI_THUC_HIEN])}</div>
       <div class="meta">📅 Ngày giao: ${fmtDate(new Date(t.created_at).getTime())} | ✅ Hoàn thành: ${t.completed_at ? fmtDate(new Date(t.completed_at).getTime()) : '—'}</div>
-      <div class="meta">${t.fields[COLS.MO_TA_CHI_TIET] || ''}</div>
+      ${t.fields[COLS.MO_TA_CHI_TIET] ? `<div class="note">📝 ${t.fields[COLS.MO_TA_CHI_TIET]}</div>` : ''}
       ${t.attachment_url ? `<div class="meta">📎 ${t.attachment_url}</div>` : ''}
-    </div>`).join('');
+    </div>`).join(''));
 }
 
 async function renderCreateForm() {

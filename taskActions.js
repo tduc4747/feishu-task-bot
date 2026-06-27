@@ -20,11 +20,13 @@ async function assignTask({ recordId, assigneeId, actorId }) {
   const task = await db.getRecord(TASK_TABLE, recordId);
   const taskName = formatText(task.fields[COLS.TASK_NAME]);
   const sku = formatText(task.fields[COLS.SKU]);
+  const moTa = formatText(task.fields[COLS.MO_TA_CHI_TIET]);
+  const moTaLine = moTa && moTa !== 'N/A' ? `\nMô tả: ${moTa}` : '';
 
   syncTaskToBitable(task); // nền, không chờ
 
   await Promise.all([
-    sendDM(assigneeId, `📌 Bạn vừa được gán task mới!\nTask: ${taskName}\nSKU: ${sku}\nNhắn "hi" để xem chi tiết.`),
+    sendDM(assigneeId, `📌 Bạn vừa được gán task mới!\nTask: ${taskName}\nSKU: ${sku}${moTaLine}\nNhắn "hi" để xem chi tiết.`),
     actorId && actorId !== assigneeId ? sendDM(actorId, `✅ Đã gán task thành công.`) : null,
   ]);
 
