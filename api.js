@@ -65,11 +65,16 @@ router.get('/tasks/workload', auth.requireRole('admin'), async (req, res) => {
   res.json(await db.getWorkload());
 });
 
+router.get('/tasks/by-media/:id', auth.requireRole('admin'), async (req, res) => {
+  res.json(await db.getMyTasks(req.params.id));
+});
+
 router.get('/tasks/completed', async (req, res) => {
   const roles = req.roles || await db.getUserRole(req.openId);
+  const month = req.query.month || new Date().toISOString().slice(0, 7);
   const filter = roles.includes('admin')
-    ? {}
-    : { saleId: roles.includes('sale') ? req.openId : undefined, mediaId: roles.includes('media') ? req.openId : undefined };
+    ? { saleId: req.query.senderId || undefined, month }
+    : { saleId: roles.includes('sale') ? req.openId : undefined, mediaId: roles.includes('media') ? req.openId : undefined, month };
   res.json(await db.getCompletedTasks(filter));
 });
 

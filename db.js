@@ -113,12 +113,17 @@ async function getPendingTasks() {
   return res.rows.map(rowToRecord);
 }
 
-async function getCompletedTasks({ saleId, mediaId } = {}) {
+// month: 'YYYY-MM', lọc theo completed_at trong tháng đó
+async function getCompletedTasks({ saleId, mediaId, month } = {}) {
   const conditions = [`status = $1`];
   const values = [STATUS.HOAN_THANH];
   let i = 2;
   if (saleId) { conditions.push(`nguoi_giao_id = $${i++}`); values.push(saleId); }
   if (mediaId) { conditions.push(`nguoi_thuc_hien_id = $${i++}`); values.push(mediaId); }
+  if (month) {
+    conditions.push(`to_char(completed_at, 'YYYY-MM') = $${i++}`);
+    values.push(month);
+  }
   const res = await pool.query(
     `SELECT * FROM tasks WHERE ${conditions.join(' AND ')} ORDER BY completed_at DESC`,
     values
@@ -245,7 +250,7 @@ async function getWorkload() {
   );
 
   const workload = {};
-  for (const m of members) workload[m.id] = { name: m.name, dang_cho: 0, dang_lam: 0, cho_check: 0, total: 0 };
+  for (const m of members) workload[m.id] = { id: m.id, name: m.name, dang_cho: 0, dang_lam: 0, cho_check: 0, total: 0 };
 
   for (const row of res.rows) {
     if (!workload[row.id]) continue;

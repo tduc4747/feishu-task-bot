@@ -181,23 +181,72 @@ async function renderWorkload() {
   if (workload.length === 0) { mainEl.innerHTML = '<div class="empty">✅ Team không có task nào.</div>'; return; }
   mainEl.innerHTML = grid(workload.map(m => `
     <div class="card">
-      <h3>@${m.name}</h3>
+      <h3 class="clickable" data-act="show-detail" data-id="${m.id}">@${m.name}</h3>
       <div class="meta">Đang chờ: ${m.dang_cho} | Đang làm: ${m.dang_lam} | Chờ check: ${m.cho_check} | <b>Tổng: ${m.total}</b></div>
+      <div class="detail" id="detail-${m.id}" style="display:none;"></div>
     </div>`).join(''));
+
+  mainEl.querySelectorAll('[data-act="show-detail"]').forEach(el => {
+    el.onclick = async () => {
+      const id = el.dataset.id;
+      const detailEl = document.getElementById(`detail-${id}`);
+      const isOpen = detailEl.style.display !== 'none';
+      detailEl.style.display = isOpen ? 'none' : 'block';
+      if (isOpen || detailEl.dataset.loaded) return;
+      const tasks = await window.Api.getTasksByMedia(id);
+      detailEl.dataset.loaded = '1';
+      detailEl.innerHTML = tasks.length === 0
+        ? '<div class="meta">Không có task đang xử lý.</div>'
+        : tasks.map(t => `<div class="meta">• ${t.fields[COLS.TASK_NAME]} (${t.fields[COLS.TRANG_THAI]}) — ${fmtDate(t.fields[COLS.DEADLINE])}</div>`).join('');
+    };
+  });
+}
+
+function currentMonthStr() {
+  return new Date().toISOString().slice(0, 7);
 }
 
 async function renderCompleted() {
-  const tasks = await window.Api.getCompletedTasks();
-  if (tasks.length === 0) { mainEl.innerHTML = '<div class="empty">Chưa có task hoàn thành.</div>'; return; }
-  mainEl.innerHTML = grid(tasks.map(t => `
-    <div class="card">
-      <h3>${t.fields[COLS.TASK_NAME]}</h3>
-      <div class="meta">SKU: ${t.fields[COLS.SKU]}</div>
-      <div class="meta">👤 Giao: ${userName(t.fields[COLS.NGUOI_GIAO])} → Thực hiện: ${userName(t.fields[COLS.NGUOI_THUC_HIEN])}</div>
-      <div class="meta">📅 Ngày giao: ${fmtDate(new Date(t.created_at).getTime())} | ✅ Hoàn thành: ${t.completed_at ? fmtDate(new Date(t.completed_at).getTime()) : '—'}</div>
-      ${t.fields[COLS.MO_TA_CHI_TIET] ? `<div class="note">📝 ${t.fields[COLS.MO_TA_CHI_TIET]}</div>` : ''}
-      ${t.attachment_url ? `<div class="meta">📎 ${t.attachment_url}</div>` : ''}
-    </div>`).join(''));
+  if (!state.completedFilters) state.completedFilters = { month: currentMonthStr(), senderId: '' };
+  const isAdmin = state.roles.includes('admin');
+
+  const senderOptionsHtml = isAdmin
+    ? (await window.Api.getTeamMembers()).filter(m => (m.roles || []).includes('sale'))
+        .map(m => `<option value="${m.id}" ${state.completedFilters.senderId === m.id ? 'selected' : ''}>${m.name}</option>`).join('')
+    : '';
+
+  const filterBarHtml = `
+    <div class="card" style="margin-bottom: 12px;">
+      <label>Tháng</label>
+      <input type="month" id="filter-month" value="${state.completedFilters.month}" />
+      ${isAdmin ? `<label>Người gửi</label><select id="filter-sender"><option value="">Tất cả</option>${senderOptionsHtml}</select>` : ''}
+    </div>`;
+
+  const tasks = await window.Api.getCompletedTasks({
+    month: state.completedFilters.month,
+    ...(state.completedFilters.senderId ? { senderId: state.completedFilters.senderId } : {}),
+  });
+
+  const listHtml = tasks.length === 0
+    ? '<div class="empty">Chưa có task hoàn thành.</div>'
+    : grid(tasks.map(t => `
+      <div class="card">
+        <h3>${t.fields[COLS.TASK_NAME]}</h3>
+        <div class="meta">SKU: ${t.fields[COLS.SKU]}</div>
+        <div class="meta">👤 Giao: ${userName(t.fields[COLS.NGUOI_GIAO])} → Thực hiện: ${userName(t.fields[COLS.NGUOI_THUC_HIEN])}</div>
+        <div class="meta">📅 Ngày giao: ${fmtDate(new Date(t.created_at).getTime())} | ✅ Hoàn thành: ${t.completed_at ? fmtDate(new Date(t.completed_at).getTime()) : '—'}</div>
+        ${t.fields[COLS.MO_TA_CHI_TIET] ? `<div class="note">📝 ${t.fields[COLS.MO_TA_CHI_TIET]}</div>` : ''}
+        ${t.attachment_url ? `<div class="meta">📎 ${t.attachment_url}</div>` : ''}
+      </div>`).join(''));
+
+  mainEl.innerHTML = filterBarHtml + listHtml;
+
+  document.getElementById('filter-month').onchange = (e) => {
+    state.completedFilters.month = e.target.value;
+    renderCompleted();
+  };
+  const senderSel = document.getElementById('filter-sender');
+  if (senderSel) senderSel.onchange = (e) => { state.completedFilters.senderId = e.target.value; renderCompleted(); };
 }
 
 async function renderCreateForm() {
