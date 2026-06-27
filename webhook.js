@@ -28,7 +28,6 @@ async function handleNewBitableRecord(event) {
       sku: formatText(f[COLS.SKU]),
       moTaNgan: formatText(f[COLS.MO_TA_NGAN]),
       moTaChiTiet: formatText(f[COLS.MO_TA_CHI_TIET]),
-      phanLoai: formatText(f[COLS.PHAN_LOAI]),
       deadline: f[COLS.DEADLINE] || null,
       nguoiGiaoId: nguoiGiao?.id || null,
       nguoiGiaoName: nguoiGiao?.name || null,

@@ -9,10 +9,6 @@ module.exports = {
     NGUOI_GIAO:       'Người giao',
     NGUOI_THUC_HIEN:  'Người thực hiện',
     DEADLINE:         'Deadline',
-    PHAN_LOAI:        'Phân loại',
-    DANG_LAM:         'Đang làm',
-    DONE:             'Done',
-    CHO_CHECK:        'Chờ check',
   },
 
   // ─── Giá trị trạng thái ─────────────────────────

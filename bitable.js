@@ -14,12 +14,12 @@ async function syncTaskToBitable(task) {
     const fields = {
       [COLS.TASK_NAME]: task.fields[COLS.TASK_NAME],
       [COLS.SKU]: task.fields[COLS.SKU],
+      [COLS.MO_TA_NGAN]: task.fields[COLS.MO_TA_NGAN],
+      [COLS.MO_TA_CHI_TIET]: task.fields[COLS.MO_TA_CHI_TIET],
       [COLS.TRANG_THAI]: task.fields[COLS.TRANG_THAI],
       [COLS.NGUOI_GIAO]: task.fields[COLS.NGUOI_GIAO]?.map(u => ({ id: u.id })) || [],
       [COLS.NGUOI_THUC_HIEN]: task.fields[COLS.NGUOI_THUC_HIEN]?.map(u => ({ id: u.id })) || [],
-      [COLS.DANG_LAM]: task.fields[COLS.DANG_LAM],
-      [COLS.CHO_CHECK]: task.fields[COLS.CHO_CHECK],
-      [COLS.DONE]: task.fields[COLS.DONE],
+      [COLS.DEADLINE]: task.fields[COLS.DEADLINE],
     };
 
     if (task.bitable_record_id) {
@@ -56,12 +56,12 @@ async function syncAllTasksToBitable() {
       fields: {
         [COLS.TASK_NAME]: row.task_name,
         [COLS.SKU]: row.sku,
+        [COLS.MO_TA_NGAN]: row.mo_ta_ngan,
+        [COLS.MO_TA_CHI_TIET]: row.mo_ta_chi_tiet,
         [COLS.TRANG_THAI]: row.status,
         [COLS.NGUOI_GIAO]: row.nguoi_giao_id ? [{ id: row.nguoi_giao_id, name: row.nguoi_giao_name }] : [],
         [COLS.NGUOI_THUC_HIEN]: row.nguoi_thuc_hien_id ? [{ id: row.nguoi_thuc_hien_id, name: row.nguoi_thuc_hien_name }] : [],
-        [COLS.DANG_LAM]: row.dang_lam,
-        [COLS.CHO_CHECK]: row.cho_check,
-        [COLS.DONE]: row.done,
+        [COLS.DEADLINE]: row.deadline ? Number(row.deadline) : null,
       },
     };
     await syncTaskToBitable(task);

@@ -1,11 +1,7 @@
-const { sendDM, sendCard, updateCard, formatText } = require('./helpers');
-const { getUserRole, userExists, getMyTasks, getTasksBySale, getPendingTasks, getMediaMembers, getWorkload, updateRecord, getRecord } = require('./db');
-const { syncTaskToBitable } = require('./bitable');
+const { sendDM, sendCard, updateCard } = require('./helpers');
+const { getUserRole, getMyTasks, getTasksBySale, getPendingTasks, getMediaMembers, getWorkload } = require('./db');
+const taskActions = require('./taskActions');
 const { cardMediaTasks, cardSaleTasks, cardPendingTasks, cardSaleApprove, cardWorkload } = require('./cards');
-const config = require('./config');
-
-const { COLS, STATUS } = config;
-const TASK_TABLE = config.TABLE.TASK;
 
 async function handleCallback(req, res) {
   console.log('=== CALLBACK HIT ===');
@@ -67,109 +63,39 @@ async function handleCallback(req, res) {
 
       if (!assigneeId) { await sendDM(userId, '⚠️ Vui lòng chọn người thực hiện trước!'); return; }
 
-      const allMembers = await getMediaMembers();
-      const assignee = allMembers.find(m => m.id === assigneeId);
+      const { members } = await taskActions.assignTask({ recordId, assigneeId, actorId: userId });
+      const pendingTasks = await getPendingTasks();
 
-      await updateRecord(TASK_TABLE, recordId, {
-        [COLS.NGUOI_THUC_HIEN]: [{ id: assigneeId, name: assignee?.name }],
-        [COLS.TRANG_THAI]: STATUS.DANG_CHO,
-      });
-
-      const [task, pendingTasks] = await Promise.all([
-        getRecord(TASK_TABLE, recordId),
-        getPendingTasks(),
-      ]);
-      const members = allMembers;
-      const taskName = formatText(task.fields[COLS.TASK_NAME]);
-      const sku = formatText(task.fields[COLS.SKU]);
-
-      syncTaskToBitable(task); // nền, không chờ
-
-      await Promise.all([
-        sendDM(assigneeId, `📌 Bạn vừa được gán task mới!\nTask: ${taskName}\nSKU: ${sku}\nNhắn "hi" để xem chi tiết.`),
-        sendDM(userId, `✅ Đã gán task thành công.`),
-        messageId ? updateCard(messageId, cardPendingTasks(pendingTasks, members)) : null,
-      ]);
+      if (messageId) await updateCard(messageId, cardPendingTasks(pendingTasks, members));
 
     } else if (action === 'start_task') {
       const recordId = eventData.action?.value?.record_id;
 
-      await updateRecord(TASK_TABLE, recordId, {
-        [COLS.TRANG_THAI]: STATUS.DANG_LAM,
-        [COLS.DANG_LAM]: true,
-      });
+      await taskActions.startTask({ recordId, userId });
+      const tasks = await getMyTasks(userId);
 
-      const [task, tasks] = await Promise.all([getRecord(TASK_TABLE, recordId), getMyTasks(userId)]);
-      const saleId = task.fields[COLS.NGUOI_GIAO]?.[0]?.id;
-      const taskName = formatText(task.fields[COLS.TASK_NAME]);
-      const sku = formatText(task.fields[COLS.SKU]);
-      const notifySale = saleId && saleId !== userId && await userExists(saleId);
-
-      syncTaskToBitable(task); // nền, không chờ
-
-      await Promise.all([
-        cardMessageId ? updateCard(cardMessageId, cardMediaTasks(tasks)) : null,
-        sendDM(userId, `▶️ Đã bắt đầu làm task "${taskName}"!`),
-        notifySale ? sendDM(saleId, `🔄 Task "${taskName} | ${sku}" đã được bắt đầu thực hiện.`) : null,
-      ]);
+      if (cardMessageId) await updateCard(cardMessageId, cardMediaTasks(tasks));
 
     } else if (action === 'pending_check') {
       const recordId = eventData.action?.value?.record_id;
 
-      // Giữ nguyên DANG_LAM:true (ô kiểm cũ không bị bỏ), chỉ thêm CHO_CHECK
-      await updateRecord(TASK_TABLE, recordId, {
-        [COLS.TRANG_THAI]: STATUS.CHO_CHECK,
-        [COLS.CHO_CHECK]: true,
-      });
-
-      const [task, tasks] = await Promise.all([getRecord(TASK_TABLE, recordId), getMyTasks(userId)]);
-      const saleId = task.fields[COLS.NGUOI_GIAO]?.[0]?.id;
-      const taskName = formatText(task.fields[COLS.TASK_NAME]);
-      const sku = formatText(task.fields[COLS.SKU]);
-      const saleActive = saleId && await userExists(saleId);
-      const notifyId = saleActive ? saleId : userId;
-
-      syncTaskToBitable(task); // nền, không chờ
+      const { taskName, sku, notifyId } = await taskActions.pendingCheckTask({ recordId, userId });
+      const tasks = await getMyTasks(userId);
 
       await Promise.all([
         cardMessageId ? updateCard(cardMessageId, cardMediaTasks(tasks)) : null,
         sendCard(notifyId, cardSaleApprove(recordId, taskName, sku)),
-        (saleActive && saleId !== userId) ? sendDM(userId, `👀 Đã chuyển sang "Chờ check". Đang chờ sale duyệt.`) : null,
       ]);
 
     } else if (action === 'complete_task') {
       const recordId = eventData.action?.value?.record_id;
 
-      // Giữ nguyên DANG_LAM:true, CHO_CHECK:true (ô kiểm cũ không bị bỏ), chỉ thêm DONE
-      await updateRecord(TASK_TABLE, recordId, {
-        [COLS.TRANG_THAI]: STATUS.HOAN_THANH,
-        [COLS.DONE]: true,
-      });
+      await taskActions.completeTask({ recordId, userId });
+      const tasks = await (roles.includes('sale') ? getTasksBySale(userId) : getMyTasks(userId));
 
-      const [task, tasks] = await Promise.all([
-        getRecord(TASK_TABLE, recordId),
-        roles.includes('sale') ? getTasksBySale(userId) : getMyTasks(userId),
-      ]);
-      const mediaId = task.fields[COLS.NGUOI_THUC_HIEN]?.[0]?.id;
-      const saleId = task.fields[COLS.NGUOI_GIAO]?.[0]?.id;
-      const taskName = formatText(task.fields[COLS.TASK_NAME]);
-      const sku = formatText(task.fields[COLS.SKU]);
-      const msg = `✅ Task "${taskName} | ${sku}" đã hoàn thành!`;
-      const [notifySale, notifyMedia] = await Promise.all([
-        saleId && saleId !== userId ? userExists(saleId) : false,
-        mediaId && mediaId !== userId ? userExists(mediaId) : false,
-      ]);
-
-      syncTaskToBitable(task); // nền, không chờ
-
-      await Promise.all([
-        cardMessageId
-          ? updateCard(cardMessageId, roles.includes('sale') ? cardSaleTasks(tasks) : cardMediaTasks(tasks))
-          : null,
-        sendDM(userId, msg),
-        notifySale ? sendDM(saleId, msg) : null,
-        notifyMedia ? sendDM(mediaId, msg) : null,
-      ]);
+      if (cardMessageId) {
+        await updateCard(cardMessageId, roles.includes('sale') ? cardSaleTasks(tasks) : cardMediaTasks(tasks));
+      }
     }
 
   } catch (err) {

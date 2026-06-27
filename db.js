@@ -23,19 +23,17 @@ async function init() {
       sku                 TEXT,
       mo_ta_ngan          TEXT,
       mo_ta_chi_tiet      TEXT,
-      phan_loai           TEXT,
       status              TEXT NOT NULL DEFAULT '${STATUS.CHO_GAN}',
       nguoi_giao_id       TEXT,
       nguoi_giao_name     TEXT,
       nguoi_thuc_hien_id  TEXT,
       nguoi_thuc_hien_name TEXT,
       deadline            BIGINT,
-      dang_lam            BOOLEAN NOT NULL DEFAULT false,
-      cho_check           BOOLEAN NOT NULL DEFAULT false,
-      done                BOOLEAN NOT NULL DEFAULT false,
+      attachment_url      TEXT,
       bitable_record_id   TEXT,
       created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+      updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+      completed_at        TIMESTAMPTZ
     );
 
     CREATE INDEX IF NOT EXISTS idx_tasks_thuc_hien ON tasks(nguoi_thuc_hien_id);
@@ -48,6 +46,17 @@ async function init() {
     ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_nguoi_giao_id_fkey;
     ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_nguoi_thuc_hien_id_fkey;
   `);
+
+  // Dọn cột cũ không còn dùng (dữ liệu trùng với status, hoặc thay bằng Formula riêng trong Bitable)
+  // và thêm cột mới cho deploy đã tồn tại từ trước
+  await pool.query(`
+    ALTER TABLE tasks DROP COLUMN IF EXISTS phan_loai;
+    ALTER TABLE tasks DROP COLUMN IF EXISTS dang_lam;
+    ALTER TABLE tasks DROP COLUMN IF EXISTS cho_check;
+    ALTER TABLE tasks DROP COLUMN IF EXISTS done;
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS attachment_url TEXT;
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+  `);
 }
 
 // ─── Chuyển 1 row Postgres -> hình dạng "record" giống Bitable cũ ───
@@ -55,19 +64,18 @@ function rowToRecord(row) {
   return {
     record_id: String(row.id),
     bitable_record_id: row.bitable_record_id,
+    created_at: row.created_at,
+    completed_at: row.completed_at,
+    attachment_url: row.attachment_url,
     fields: {
       [COLS.TASK_NAME]: row.task_name,
       [COLS.SKU]: row.sku,
       [COLS.MO_TA_NGAN]: row.mo_ta_ngan,
       [COLS.MO_TA_CHI_TIET]: row.mo_ta_chi_tiet,
-      [COLS.PHAN_LOAI]: row.phan_loai,
       [COLS.TRANG_THAI]: row.status,
       [COLS.NGUOI_GIAO]: row.nguoi_giao_id ? [{ id: row.nguoi_giao_id, name: row.nguoi_giao_name }] : null,
       [COLS.NGUOI_THUC_HIEN]: row.nguoi_thuc_hien_id ? [{ id: row.nguoi_thuc_hien_id, name: row.nguoi_thuc_hien_name }] : null,
       [COLS.DEADLINE]: row.deadline ? Number(row.deadline) : null,
-      [COLS.DANG_LAM]: row.dang_lam,
-      [COLS.CHO_CHECK]: row.cho_check,
-      [COLS.DONE]: row.done,
     },
   };
 }
@@ -106,6 +114,19 @@ async function getPendingTasks() {
   return res.rows.map(rowToRecord);
 }
 
+async function getCompletedTasks({ saleId, mediaId } = {}) {
+  const conditions = [`status = $1`];
+  const values = [STATUS.HOAN_THANH];
+  let i = 2;
+  if (saleId) { conditions.push(`nguoi_giao_id = $${i++}`); values.push(saleId); }
+  if (mediaId) { conditions.push(`nguoi_thuc_hien_id = $${i++}`); values.push(mediaId); }
+  const res = await pool.query(
+    `SELECT * FROM tasks WHERE ${conditions.join(' AND ')} ORDER BY completed_at DESC`,
+    values
+  );
+  return res.rows.map(rowToRecord);
+}
+
 // ─── Cập nhật task (nhận fields theo tên COLS.* để khỏi đổi callback.js) ───
 async function updateRecord(_tableId, recordId, fields) {
   const sets = [];
@@ -114,9 +135,11 @@ async function updateRecord(_tableId, recordId, fields) {
 
   const map = {
     [COLS.TRANG_THAI]: 'status',
-    [COLS.DANG_LAM]: 'dang_lam',
-    [COLS.CHO_CHECK]: 'cho_check',
-    [COLS.DONE]: 'done',
+    [COLS.TASK_NAME]: 'task_name',
+    [COLS.SKU]: 'sku',
+    [COLS.MO_TA_NGAN]: 'mo_ta_ngan',
+    [COLS.MO_TA_CHI_TIET]: 'mo_ta_chi_tiet',
+    [COLS.DEADLINE]: 'deadline',
   };
 
   for (const [col, val] of Object.entries(fields)) {
@@ -132,6 +155,14 @@ async function updateRecord(_tableId, recordId, fields) {
       sets.push(`nguoi_giao_name = $${i++}`); values.push(user?.name || null);
       continue;
     }
+    if (col === '_completed_at') {
+      sets.push(`completed_at = $${i++}`); values.push(val);
+      continue;
+    }
+    if (col === '_attachment_url') {
+      sets.push(`attachment_url = $${i++}`); values.push(val);
+      continue;
+    }
     const dbCol = map[col];
     if (!dbCol) continue;
     sets.push(`${dbCol} = $${i++}`);
@@ -145,12 +176,12 @@ async function updateRecord(_tableId, recordId, fields) {
   await pool.query(`UPDATE tasks SET ${sets.join(', ')} WHERE id = $${i}`, values);
 }
 
-async function createTask({ taskName, sku, moTaNgan, moTaChiTiet, phanLoai, deadline, nguoiGiaoId, nguoiGiaoName, bitableRecordId }) {
+async function createTask({ taskName, sku, moTaNgan, moTaChiTiet, deadline, nguoiGiaoId, nguoiGiaoName, attachmentUrl, bitableRecordId }) {
   const res = await pool.query(
-    `INSERT INTO tasks (task_name, sku, mo_ta_ngan, mo_ta_chi_tiet, phan_loai, deadline, nguoi_giao_id, nguoi_giao_name, status, bitable_record_id)
+    `INSERT INTO tasks (task_name, sku, mo_ta_ngan, mo_ta_chi_tiet, deadline, nguoi_giao_id, nguoi_giao_name, attachment_url, status, bitable_record_id)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      RETURNING *`,
-    [taskName, sku, moTaNgan, moTaChiTiet, phanLoai, deadline || null, nguoiGiaoId || null, nguoiGiaoName || null, STATUS.CHO_GAN, bitableRecordId || null]
+    [taskName, sku, moTaNgan, moTaChiTiet, deadline || null, nguoiGiaoId || null, nguoiGiaoName || null, attachmentUrl || null, STATUS.CHO_GAN, bitableRecordId || null]
   );
   return rowToRecord(res.rows[0]);
 }
@@ -178,6 +209,12 @@ async function userExists(openId) {
 
 async function getMediaMembers() {
   const res = await pool.query(`SELECT open_id AS id, name FROM users WHERE 'media' = ANY(roles)`);
+  return res.rows;
+}
+
+// ─── Toàn bộ thành viên DS_TEAM (dùng cho dropdown "Người giao") ───
+async function getTeamMembers() {
+  const res = await pool.query('SELECT open_id AS id, name, roles FROM users ORDER BY name');
   return res.rows;
 }
 
@@ -214,9 +251,12 @@ async function getWorkload() {
   return Object.values(workload);
 }
 
+// Khoá nội bộ dùng với updateRecord() cho field không thuộc Bitable (không sync ra ngoài)
+const INTERNAL_FIELDS = { COMPLETED_AT: '_completed_at', ATTACHMENT_URL: '_attachment_url' };
+
 module.exports = {
-  pool, init,
-  getAllTasks, getRecord, getMyTasks, getTasksBySale, getPendingTasks,
+  pool, init, INTERNAL_FIELDS,
+  getAllTasks, getRecord, getMyTasks, getTasksBySale, getPendingTasks, getCompletedTasks,
   updateRecord, createTask,
-  upsertUser, getUserRole, userExists, getMediaMembers, getAdminIds, getWorkload,
+  upsertUser, getUserRole, userExists, getMediaMembers, getAdminIds, getWorkload, getTeamMembers,
 };
