@@ -1,7 +1,7 @@
 // ─── Logic chuyển trạng thái task, dùng chung cho card chat (callback.js) và REST API (api.js) ───
 const { sendDM, formatText } = require('./helpers');
 const db = require('./db');
-const { syncTaskToBitable } = require('./bitable');
+const { syncTaskToBitable, scheduleQuickSync } = require('./bitable');
 const config = require('./config');
 
 const { COLS, STATUS } = config;
@@ -23,7 +23,7 @@ async function assignTask({ recordId, assigneeId, actorId }) {
   const moTa = formatText(task.fields[COLS.MO_TA_CHI_TIET]);
   const moTaLine = moTa && moTa !== 'N/A' ? `\nMô tả: ${moTa}` : '';
 
-  syncTaskToBitable(task); // nền, không chờ
+  syncTaskToBitable(task); scheduleQuickSync(); // nền, không chờ + lưới an toàn 10s sau
 
   await Promise.all([
     sendDM(assigneeId, `📌 Bạn vừa được gán task mới!\nTask: ${taskName}\nSKU: ${sku}${moTaLine}\nNhắn "hi" để xem chi tiết.`),
@@ -44,7 +44,7 @@ async function startTask({ recordId, userId }) {
   const sku = formatText(task.fields[COLS.SKU]);
   const notifySale = saleId && saleId !== userId && await db.userExists(saleId);
 
-  syncTaskToBitable(task); // nền, không chờ
+  syncTaskToBitable(task); scheduleQuickSync(); // nền, không chờ + lưới an toàn 10s sau
 
   await Promise.all([
     sendDM(userId, `▶️ Đã bắt đầu làm task "${taskName}"!`),
@@ -66,7 +66,7 @@ async function pendingCheckTask({ recordId, userId }) {
   const saleActive = saleId && await db.userExists(saleId);
   const notifyId = saleActive ? saleId : userId;
 
-  syncTaskToBitable(task); // nền, không chờ
+  syncTaskToBitable(task); scheduleQuickSync(); // nền, không chờ + lưới an toàn 10s sau
 
   if (saleActive && saleId !== userId) {
     await sendDM(userId, `👀 Đã chuyển sang "Chờ check". Đang chờ sale duyệt.`);
@@ -93,7 +93,7 @@ async function completeTask({ recordId, userId }) {
     mediaId && mediaId !== userId ? db.userExists(mediaId) : false,
   ]);
 
-  syncTaskToBitable(task); // nền, không chờ
+  syncTaskToBitable(task); scheduleQuickSync(); // nền, không chờ + lưới an toàn 10s sau
 
   await Promise.all([
     sendDM(userId, msg),

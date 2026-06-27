@@ -108,7 +108,7 @@ router.post('/tasks', auth.requireRole('sale', 'admin'), async (req, res) => {
       attachmentUrl: attachmentUrl || null,
     });
 
-    require('./bitable').syncTaskToBitable(task); // nền, không chờ
+    require('./bitable').syncTaskToBitable(task); require('./bitable').scheduleQuickSync(); // nền
 
     db.getAdminIds().then(admins => Promise.all(
       admins.map(a => sendDM(a.id, `🆕 Có task mới cần gán!\nTask: ${formatText(task.fields[COLS.TASK_NAME])}\nSKU: ${formatText(task.fields[COLS.SKU])}\nNgười giao: ${giaoName}`))
@@ -152,7 +152,7 @@ router.patch('/tasks/:id', auth.requireRole('sale', 'admin'), async (req, res) =
 
     await db.updateRecord(TASK_TABLE, req.params.id, fields);
     const task = await db.getRecord(TASK_TABLE, req.params.id);
-    require('./bitable').syncTaskToBitable(task);
+    require('./bitable').syncTaskToBitable(task); require('./bitable').scheduleQuickSync();
     res.json(task);
   } catch (err) {
     console.error('PATCH /tasks/:id lỗi:', err.message);
@@ -166,11 +166,41 @@ router.delete('/tasks/:id', auth.requireRole('sale', 'admin'), async (req, res) 
     if (!(await assertOwnsTask(req, res))) return;
 
     const deleted = await db.deleteTask(req.params.id);
-    require('./bitable').deleteRecordFromBitable(deleted?.bitable_record_id);
+    require('./bitable').deleteRecordFromBitable(deleted?.bitable_record_id); require('./bitable').scheduleQuickSync();
     res.json({ ok: true });
   } catch (err) {
     console.error('DELETE /tasks/:id lỗi:', err.message);
     res.status(500).json({ error: 'Xoá task thất bại' });
+  }
+});
+
+// ─── Sửa trạng thái trực tiếp (Media tự sửa nếu bấm nhầm) ─────────────
+router.patch('/tasks/:id/status', async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!Object.values(STATUS).includes(status)) {
+      return res.status(400).json({ error: 'Trạng thái không hợp lệ' });
+    }
+    const task = await db.getRecord(TASK_TABLE, req.params.id);
+    if (!task) return res.status(404).json({ error: 'Không tìm thấy task' });
+
+    const roles = req.roles || await db.getUserRole(req.openId);
+    const thucHienId = task.fields[COLS.NGUOI_THUC_HIEN]?.[0]?.id;
+    if (!roles.includes('admin') && thucHienId !== req.openId) {
+      return res.status(403).json({ error: 'Bạn không có quyền sửa task này' });
+    }
+
+    const fields = { [COLS.TRANG_THAI]: status };
+    if (status === STATUS.HOAN_THANH) fields[db.INTERNAL_FIELDS.COMPLETED_AT] = new Date();
+    await db.updateRecord(TASK_TABLE, req.params.id, fields);
+
+    const updated = await db.getRecord(TASK_TABLE, req.params.id);
+    require('./bitable').syncTaskToBitable(updated);
+    require('./bitable').scheduleQuickSync();
+    res.json(updated);
+  } catch (err) {
+    console.error('PATCH /tasks/:id/status lỗi:', err.message);
+    res.status(500).json({ error: 'Cập nhật trạng thái thất bại' });
   }
 });
 

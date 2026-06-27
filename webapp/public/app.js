@@ -39,9 +39,9 @@ function setNav(tabs) {
   });
 }
 
-// opts: { actionsHtml, person: 'giao'|'thuchien'|'none', showStatus, showMota }
+// opts: { actionsHtml, titleActionsHtml, person: 'giao'|'thuchien'|'none', showStatus, showMota }
 function taskCard(t, opts = {}) {
-  const { actionsHtml = '', person = 'none', showStatus = true, showMota = false } = opts;
+  const { actionsHtml = '', titleActionsHtml = '', person = 'none', showStatus = true, showMota = false } = opts;
   const f = t.fields;
   let personLine = '';
   if (person === 'giao') personLine = `<div class="meta">👤 Người giao: ${userName(f[COLS.NGUOI_GIAO])}</div>`;
@@ -49,12 +49,32 @@ function taskCard(t, opts = {}) {
 
   return `
     <div class="card" data-id="${t.record_id}">
-      <h3>${f[COLS.TASK_NAME] || 'N/A'}</h3>
+      <div class="card-title-row">
+        <h3>${f[COLS.TASK_NAME] || 'N/A'}</h3>
+        ${titleActionsHtml ? `<div class="icon-actions">${titleActionsHtml}</div>` : ''}
+      </div>
       <div class="meta">SKU: ${f[COLS.SKU] || 'N/A'}</div>
       ${personLine}
       <div class="meta">📅 Deadline: ${fmtDate(f[COLS.DEADLINE])}${showStatus ? ` | 📌 ${f[COLS.TRANG_THAI]}` : ''}</div>
       ${showMota && f[COLS.MO_TA_CHI_TIET] ? `<div class="note">📝 ${f[COLS.MO_TA_CHI_TIET]}</div>` : ''}
       ${actionsHtml}
+    </div>`;
+}
+
+function editStatusForm(t) {
+  const current = t.fields[COLS.TRANG_THAI];
+  const options = [STATUS.DANG_CHO, STATUS.DANG_LAM, STATUS.CHO_CHECK, STATUS.HOAN_THANH]
+    .map(s => `<option value="${s}" ${s === current ? 'selected' : ''}>${s}</option>`).join('');
+  return `
+    <div class="card" data-id="${t.record_id}">
+      <h3>${t.fields[COLS.TASK_NAME]}</h3>
+      <label>Trạng thái</label>
+      <select data-edit="status">${options}</select>
+      <div class="error" data-edit-error></div>
+      <div class="actions">
+        <button class="primary" data-act="save-status">Lưu</button>
+        <button class="secondary" data-act="cancel-edit">Huỷ</button>
+      </div>
     </div>`;
 }
 
@@ -66,16 +86,29 @@ async function renderMyTasks() {
     let action = '';
     if (status === STATUS.DANG_CHO) action = `<button class="primary" data-act="start">Bắt đầu làm</button>`;
     else if (status === STATUS.DANG_LAM) action = `<button class="secondary" data-act="pending-check">Chờ check</button>`;
-    return taskCard(t, { actionsHtml: action ? `<div class="actions">${action}</div>` : '', person: 'giao', showMota: true });
+    const titleActionsHtml = `<button class="icon-btn" data-act="edit-status" title="Sửa trạng thái">✏️</button>`;
+    return taskCard(t, { actionsHtml: action ? `<div class="actions">${action}</div>` : '', titleActionsHtml, person: 'giao', showMota: true });
   }).join(''));
-  mainEl.querySelectorAll('[data-act]').forEach(btn => {
-    btn.onclick = async () => {
-      const id = btn.closest('.card').dataset.id;
-      const act = btn.dataset.act;
-      if (act === 'start') await window.Api.startTask(id);
-      else if (act === 'pending-check') await window.Api.pendingCheck(id);
-      renderMyTasks();
-    };
+
+  mainEl.querySelectorAll('.card').forEach(card => {
+    const id = card.dataset.id;
+    card.querySelector('[data-act="start"]')?.addEventListener('click', async () => { await window.Api.startTask(id); renderMyTasks(); });
+    card.querySelector('[data-act="pending-check"]')?.addEventListener('click', async () => { await window.Api.pendingCheck(id); renderMyTasks(); });
+    card.querySelector('[data-act="edit-status"]')?.addEventListener('click', () => {
+      const task = tasks.find(t => t.record_id === id);
+      card.outerHTML = editStatusForm(task);
+      const newCard = mainEl.querySelector(`.card[data-id="${id}"]`);
+      newCard.querySelector('[data-act="cancel-edit"]').onclick = () => renderMyTasks();
+      newCard.querySelector('[data-act="save-status"]').onclick = async () => {
+        const errEl = newCard.querySelector('[data-edit-error]');
+        try {
+          await window.Api.updateStatus(id, newCard.querySelector('[data-edit="status"]').value);
+          renderMyTasks();
+        } catch (err) {
+          errEl.textContent = err.message;
+        }
+      };
+    });
   });
 }
 
@@ -105,12 +138,11 @@ async function renderSentTasks() {
   if (tasks.length === 0) { mainEl.innerHTML = '<div class="empty">✅ Không có task nào.</div>'; return; }
   mainEl.innerHTML = grid(tasks.map(t => {
     const status = t.fields[COLS.TRANG_THAI];
-    const completeBtn = status === STATUS.CHO_CHECK ? `<button class="primary" data-act="complete">✅ Hoàn thành</button>` : '';
-    const actionsHtml = `<div class="actions">${completeBtn}
-      <button class="secondary" data-act="edit">Sửa</button>
-      <button class="secondary" data-act="delete">Xoá</button>
-    </div>`;
-    return taskCard(t, { actionsHtml, person: 'thuchien', showMota: true });
+    const completeBtn = status === STATUS.CHO_CHECK ? `<div class="actions"><button class="primary" data-act="complete">✅ Hoàn thành</button></div>` : '';
+    const titleActionsHtml = `
+      <button class="icon-btn" data-act="edit" title="Sửa">✏️</button>
+      <button class="icon-btn" data-act="delete" title="Xoá">🗑️</button>`;
+    return taskCard(t, { actionsHtml: completeBtn, titleActionsHtml, person: 'thuchien', showMota: true });
   }).join(''));
 
   mainEl.querySelectorAll('.card').forEach(card => {

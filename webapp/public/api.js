@@ -69,6 +69,7 @@ window.Api = {
   deleteTask: (id) => request(`/api/tasks/${id}`, { method: 'DELETE' }),
   assignTask: (id, assigneeId) => request(`/api/tasks/${id}/assign`, { method: 'POST', body: { assigneeId } }),
   startTask: (id) => request(`/api/tasks/${id}/start`, { method: 'POST' }),
+  updateStatus: (id, status) => request(`/api/tasks/${id}/status`, { method: 'PATCH', body: { status } }),
   pendingCheck: (id) => request(`/api/tasks/${id}/pending-check`, { method: 'POST' }),
   completeTask: (id) => request(`/api/tasks/${id}/complete`, { method: 'POST' }),
   uploadFile: async (file) => {

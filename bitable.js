@@ -81,6 +81,18 @@ async function syncAllTasksToBitable() {
   }
 }
 
+// ─── Sync nhanh: sau 10s không có thao tác nào nữa thì chạy đồng bộ toàn bộ ───
+// (thay cho việc chỉ chờ lịch cố định 15 phút — gọi scheduleQuickSync() mỗi khi
+// có hành động tạo/sửa/gán/đổi trạng thái task, debounce lại nếu có hành động mới).
+let quickSyncTimer = null;
+function scheduleQuickSync() {
+  if (quickSyncTimer) clearTimeout(quickSyncTimer);
+  quickSyncTimer = setTimeout(() => {
+    quickSyncTimer = null;
+    syncAllTasksToBitable().catch(err => console.error('quickSync lỗi:', err.message));
+  }, 10000);
+}
+
 // ─── Xoá record trên Bitable khi task bị xoá khỏi DB ───
 async function deleteRecordFromBitable(bitableRecordId) {
   if (!bitableRecordId) return;
@@ -95,4 +107,4 @@ async function deleteRecordFromBitable(bitableRecordId) {
   }
 }
 
-module.exports = { syncTaskToBitable, syncAllTasksToBitable, deleteRecordFromBitable };
+module.exports = { syncTaskToBitable, syncAllTasksToBitable, deleteRecordFromBitable, scheduleQuickSync };
