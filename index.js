@@ -7,6 +7,7 @@ const { handleWebhook } = require('./webhook');
 const { handleCallback } = require('./callback');
 const { startScheduler } = require('./scheduler');
 const { syncAllTasksToBitable } = require('./bitable');
+const messages = require('./messages');
 const apiRouter = require('./api');
 
 const app = express();
@@ -23,6 +24,7 @@ app.get('/', (req, res) => res.json({ status: 'ok', message: 'Feishu Task Bot ru
 const PORT = process.env.PORT || 8080;
 
 db.init()
+  .then(() => messages.ensureSeeded())
   .then(() => {
     app.listen(PORT, () => {
       console.log(`Bot running on port ${PORT}`);

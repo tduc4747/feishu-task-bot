@@ -72,6 +72,14 @@ window.Api = {
   updateStatus: (id, status) => request(`/api/tasks/${id}/status`, { method: 'PATCH', body: { status } }),
   pendingCheck: (id) => request(`/api/tasks/${id}/pending-check`, { method: 'POST' }),
   completeTask: (id) => request(`/api/tasks/${id}/complete`, { method: 'POST' }),
+  getUsers: () => request('/api/users'),
+  createUser: (body) => request('/api/users', { method: 'POST', body }),
+  updateUser: (openId, body) => request(`/api/users/${openId}`, { method: 'PATCH', body }),
+  deleteUser: (openId) => request(`/api/users/${openId}`, { method: 'DELETE' }),
+  getMessageTemplates: () => request('/api/message-templates'),
+  createMessageTemplate: (body) => request('/api/message-templates', { method: 'POST', body }),
+  updateMessageTemplate: (key, body) => request(`/api/message-templates/${key}`, { method: 'PATCH', body }),
+  deleteMessageTemplate: (key) => request(`/api/message-templates/${key}`, { method: 'DELETE' }),
   uploadFile: async (file) => {
     const form = new FormData();
     form.append('file', file);

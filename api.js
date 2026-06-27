@@ -8,6 +8,7 @@ const { getTenantToken, sendDM, formatText } = require('./helpers');
 const taskActions = require('./taskActions');
 const auth = require('./auth');
 const config = require('./config');
+const messages = require('./messages');
 
 const { COLS, STATUS } = config;
 const TASK_TABLE = config.TABLE.TASK;
@@ -110,9 +111,13 @@ router.post('/tasks', auth.requireRole('sale', 'admin'), async (req, res) => {
 
     require('./bitable').syncTaskToBitable(task); require('./bitable').scheduleQuickSync(); // nền
 
-    db.getAdminIds().then(admins => Promise.all(
-      admins.map(a => sendDM(a.id, `🆕 Có task mới cần gán!\nTask: ${formatText(task.fields[COLS.TASK_NAME])}\nSKU: ${formatText(task.fields[COLS.SKU])}\nNgười giao: ${giaoName}`))
-    )).catch(err => console.error('Thông báo admin lỗi (bỏ qua):', err.message));
+    messages.renderMessage('task_new_for_admin', {
+      ten_task: formatText(task.fields[COLS.TASK_NAME]),
+      sku: formatText(task.fields[COLS.SKU]),
+      ten_nguoi_giao: giaoName || '',
+    }).then(msg => db.getAdminIds().then(admins => Promise.all(
+      admins.map(a => sendDM(a.id, msg))
+    ))).catch(err => console.error('Thông báo admin lỗi (bỏ qua):', err.message));
 
     res.status(201).json(task);
   } catch (err) {
@@ -262,6 +267,99 @@ router.post('/uploads', upload.single('file'), async (req, res) => {
   } catch (err) {
     console.error('upload lỗi:', err.response?.data || err.message);
     res.status(500).json({ error: 'Tải file lên thất bại' });
+  }
+});
+
+// ─── Quản lý người (admin) ───────────────────────────────────────────
+const VALID_ROLES = ['admin', 'sale', 'media'];
+
+router.get('/users', auth.requireRole('admin'), async (req, res) => {
+  res.json(await db.getAllUsers());
+});
+
+router.post('/users', auth.requireRole('admin'), async (req, res) => {
+  try {
+    const { openId, name, roles } = req.body;
+    if (!openId || !name || !Array.isArray(roles) || !roles.length) {
+      return res.status(400).json({ error: 'Thiếu openId/name/roles' });
+    }
+    if (roles.some(r => !VALID_ROLES.includes(r))) {
+      return res.status(400).json({ error: 'Vị trí không hợp lệ' });
+    }
+    if (await db.userExists(openId)) {
+      return res.status(400).json({ error: 'Open ID này đã tồn tại' });
+    }
+    await db.upsertUser(openId, name, roles);
+    res.status(201).json({ id: openId, name, roles });
+  } catch (err) {
+    console.error('POST /users lỗi:', err.message);
+    res.status(500).json({ error: 'Thêm người dùng thất bại' });
+  }
+});
+
+router.patch('/users/:openId', auth.requireRole('admin'), async (req, res) => {
+  try {
+    const { name, roles } = req.body;
+    if (!(await db.userExists(req.params.openId))) {
+      return res.status(404).json({ error: 'Không tìm thấy người dùng' });
+    }
+    if (roles && roles.some(r => !VALID_ROLES.includes(r))) {
+      return res.status(400).json({ error: 'Vị trí không hợp lệ' });
+    }
+    const current = await db.getUserInfo(req.params.openId);
+    await db.upsertUser(req.params.openId, name ?? current.name, roles ?? current.roles);
+    res.json({ id: req.params.openId, name: name ?? current.name, roles: roles ?? current.roles });
+  } catch (err) {
+    console.error('PATCH /users/:openId lỗi:', err.message);
+    res.status(500).json({ error: 'Cập nhật người dùng thất bại' });
+  }
+});
+
+router.delete('/users/:openId', auth.requireRole('admin'), async (req, res) => {
+  try {
+    if (req.params.openId === req.openId) {
+      return res.status(400).json({ error: 'Không thể tự xoá chính mình' });
+    }
+    await db.deleteUser(req.params.openId);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /users/:openId lỗi:', err.message);
+    res.status(500).json({ error: 'Xoá người dùng thất bại' });
+  }
+});
+
+// ─── Quản lý mẫu tin nhắn (admin) ─────────────────────────────────────
+router.get('/message-templates', auth.requireRole('admin'), async (req, res) => {
+  res.json({ templates: await messages.listTemplates(), variables: messages.VAR_HELP });
+});
+
+router.post('/message-templates', auth.requireRole('admin'), async (req, res) => {
+  try {
+    const { title, content } = req.body;
+    if (!title || !content) return res.status(400).json({ error: 'Thiếu title/content' });
+    res.status(201).json(await messages.createTemplate({ title, content }));
+  } catch (err) {
+    console.error('POST /message-templates lỗi:', err.message);
+    res.status(500).json({ error: 'Tạo mẫu tin nhắn thất bại' });
+  }
+});
+
+router.patch('/message-templates/:key', auth.requireRole('admin'), async (req, res) => {
+  try {
+    const { title, content } = req.body;
+    res.json(await messages.updateTemplate(req.params.key, { title, content }));
+  } catch (err) {
+    console.error('PATCH /message-templates/:key lỗi:', err.message);
+    res.status(500).json({ error: 'Cập nhật mẫu tin nhắn thất bại' });
+  }
+});
+
+router.delete('/message-templates/:key', auth.requireRole('admin'), async (req, res) => {
+  try {
+    await messages.deleteTemplate(req.params.key);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 

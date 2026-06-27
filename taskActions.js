@@ -1,7 +1,8 @@
 // ─── Logic chuyển trạng thái task, dùng chung cho card chat (callback.js) và REST API (api.js) ───
-const { sendDM, formatText } = require('./helpers');
+const { sendDM, formatText, formatDate } = require('./helpers');
 const db = require('./db');
 const { syncTaskToBitable, scheduleQuickSync } = require('./bitable');
+const { renderMessage } = require('./messages');
 const config = require('./config');
 
 const { COLS, STATUS } = config;
@@ -21,13 +22,13 @@ async function assignTask({ recordId, assigneeId, actorId }) {
   const taskName = formatText(task.fields[COLS.TASK_NAME]);
   const sku = formatText(task.fields[COLS.SKU]);
   const moTa = formatText(task.fields[COLS.MO_TA_CHI_TIET]);
-  const moTaLine = moTa && moTa !== 'N/A' ? `\nMô tả: ${moTa}` : '';
+  const vars = { ten_task: taskName, sku, mo_ta_chi_tiet: moTa !== 'N/A' ? moTa : '', deadline: formatDate(task.fields[COLS.DEADLINE]), ten_nguoi_giao: formatText(task.fields[COLS.NGUOI_GIAO]).replace(/^@/, ''), ten_nguoi_thuc_hien: assignee.name };
 
   syncTaskToBitable(task); scheduleQuickSync(); // nền, không chờ + lưới an toàn 10s sau
 
   await Promise.all([
-    sendDM(assigneeId, `📌 Bạn vừa được gán task mới!\nTask: ${taskName}\nSKU: ${sku}${moTaLine}\nNhắn "hi" để xem chi tiết.`),
-    actorId && actorId !== assigneeId ? sendDM(actorId, `✅ Đã gán task thành công.`) : null,
+    sendDM(assigneeId, await renderMessage('task_assigned', vars)),
+    actorId && actorId !== assigneeId ? sendDM(actorId, await renderMessage('task_assign_confirm', vars)) : null,
   ]);
 
   return { task, members: allMembers };
@@ -42,13 +43,15 @@ async function startTask({ recordId, userId }) {
   const saleId = task.fields[COLS.NGUOI_GIAO]?.[0]?.id;
   const taskName = formatText(task.fields[COLS.TASK_NAME]);
   const sku = formatText(task.fields[COLS.SKU]);
+  const thucHienName = task.fields[COLS.NGUOI_THUC_HIEN]?.[0]?.name || '';
+  const vars = { ten_task: taskName, sku, ten_nguoi_thuc_hien: thucHienName };
   const notifySale = saleId && saleId !== userId && await db.userExists(saleId);
 
   syncTaskToBitable(task); scheduleQuickSync(); // nền, không chờ + lưới an toàn 10s sau
 
   await Promise.all([
-    sendDM(userId, `▶️ Đã bắt đầu làm task "${taskName}"!`),
-    notifySale ? sendDM(saleId, `🔄 Task "${taskName} | ${sku}" đã được bắt đầu thực hiện.`) : null,
+    sendDM(userId, await renderMessage('task_started_self', vars)),
+    notifySale ? sendDM(saleId, await renderMessage('task_started_notify_sale', vars)) : null,
   ]);
 
   return { task };
@@ -69,7 +72,7 @@ async function pendingCheckTask({ recordId, userId }) {
   syncTaskToBitable(task); scheduleQuickSync(); // nền, không chờ + lưới an toàn 10s sau
 
   if (saleActive && saleId !== userId) {
-    await sendDM(userId, `👀 Đã chuyển sang "Chờ check". Đang chờ sale duyệt.`);
+    await sendDM(userId, await renderMessage('task_pending_check_self', { ten_task: taskName, sku }));
   }
 
   return { task, taskName, sku, notifyId, saleActive };
@@ -86,11 +89,11 @@ async function completeTask({ recordId, userId }) {
   const saleId = task.fields[COLS.NGUOI_GIAO]?.[0]?.id;
   const taskName = formatText(task.fields[COLS.TASK_NAME]);
   const sku = formatText(task.fields[COLS.SKU]);
-  const msg = `✅ Task "${taskName} | ${sku}" đã hoàn thành!`;
 
-  const [notifySale, notifyMedia] = await Promise.all([
+  const [notifySale, notifyMedia, msg] = await Promise.all([
     saleId && saleId !== userId ? db.userExists(saleId) : false,
     mediaId && mediaId !== userId ? db.userExists(mediaId) : false,
+    renderMessage('task_completed', { ten_task: taskName, sku }),
   ]);
 
   syncTaskToBitable(task); scheduleQuickSync(); // nền, không chờ + lưới an toàn 10s sau

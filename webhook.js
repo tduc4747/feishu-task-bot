@@ -85,7 +85,7 @@ async function handleWebhook(req, res) {
     // ─── Lấy role của user ──────────────────────────
     const roles = await getUserRole(userId);
     if (roles.length === 0) {
-      await sendDM(userId, '⛔ Bạn chưa được thêm vào hệ thống. Vui lòng liên hệ admin.');
+      await sendDM(userId, `⛔ Bạn chưa được thêm vào hệ thống.\nGửi Open ID này cho admin để được thêm vào tab "Quản lý người":\n${userId}`);
       return;
     }
 

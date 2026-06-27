@@ -38,6 +38,15 @@ async function init() {
     CREATE INDEX IF NOT EXISTS idx_tasks_thuc_hien ON tasks(nguoi_thuc_hien_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_giao ON tasks(nguoi_giao_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+
+    CREATE TABLE IF NOT EXISTS message_templates (
+      key         TEXT PRIMARY KEY,
+      title       TEXT NOT NULL,
+      content     TEXT NOT NULL,
+      is_system   BOOLEAN NOT NULL DEFAULT false,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
   `);
 
   // Bỏ ràng buộc khoá ngoại cũ nếu bảng đã được tạo từ lần deploy trước
@@ -236,6 +245,16 @@ async function getAdminIds() {
   return res.rows;
 }
 
+// ─── Quản lý người (tab admin) ─────────────────────────────────────
+async function getAllUsers() {
+  const res = await pool.query('SELECT open_id AS id, name, roles FROM users ORDER BY name');
+  return res.rows;
+}
+
+async function deleteUser(openId) {
+  await pool.query('DELETE FROM users WHERE open_id = $1', [openId]);
+}
+
 // ─── Workload ─────────────────────────────────────────────────────
 async function getWorkload() {
   const members = await getMediaMembers();
@@ -272,4 +291,5 @@ module.exports = {
   getAllTasks, getRecord, getMyTasks, getTasksBySale, getPendingTasks, getCompletedTasks,
   updateRecord, createTask, deleteTask,
   upsertUser, getUserRole, getUserInfo, userExists, getMediaMembers, getAdminIds, getWorkload, getTeamMembers,
+  getAllUsers, deleteUser,
 };

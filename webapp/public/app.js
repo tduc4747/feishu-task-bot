@@ -365,6 +365,163 @@ async function renderCreateForm() {
   };
 }
 
+// ─── Quản lý người (admin) ───────────────────────────────────────────
+const ALL_ROLES = ['admin', 'sale', 'media'];
+
+function userRolesCheckboxes(checked = []) {
+  return ALL_ROLES.map(r => `
+    <label style="display:inline-flex; align-items:center; gap:4px; font-weight:400; margin-right:14px;">
+      <input type="checkbox" value="${r}" ${checked.includes(r) ? 'checked' : ''} style="width:auto; margin:0;" /> ${ROLE_LABEL[r]}
+    </label>`).join('');
+}
+
+function userForm(u = null) {
+  return `
+    <div class="card" data-user-form="${u ? u.id : 'new'}">
+      <label>Open ID${u ? '' : ' (lấy bằng cách nhắn "hi" cho bot lần đầu)'}</label>
+      <input data-f="openId" value="${u ? u.id : ''}" ${u ? 'disabled' : ''} placeholder="ou_xxxxxxxx" />
+      <label>Tên đầy đủ</label>
+      <input data-f="name" value="${u ? u.name.replace(/"/g, '&quot;') : ''}" placeholder="丁皇俊英 (Dustin)" />
+      <label>Vị trí</label>
+      <div data-f="roles">${userRolesCheckboxes(u ? u.roles : [])}</div>
+      <div class="error" data-form-error></div>
+      <div class="actions">
+        <button class="primary" data-act="save-user">Lưu</button>
+        <button class="secondary" data-act="cancel-user">Huỷ</button>
+      </div>
+    </div>`;
+}
+
+async function renderUsers() {
+  const users = await window.Api.getUsers();
+  mainEl.innerHTML = `
+    <div class="actions" style="margin-bottom:12px;"><button class="primary" data-act="add-user">+ Thêm người</button></div>
+    <div id="user-form-slot"></div>
+    ${grid(users.map(u => `
+      <div class="card" data-id="${u.id}">
+        <div class="card-title-row">
+          <h3>${u.name}</h3>
+          <div class="icon-actions">
+            <button class="icon-btn" data-act="edit-user" title="Sửa">✏️</button>
+            <button class="icon-btn" data-act="delete-user" title="Xoá">🗑️</button>
+          </div>
+        </div>
+        <div class="meta">Vị trí: ${(u.roles || []).map(r => ROLE_LABEL[r] || r).join(', ') || '—'}</div>
+      </div>`).join(''))}`;
+
+  function bindForm(slotHtml, existingUser) {
+    const slot = document.getElementById('user-form-slot');
+    slot.innerHTML = slotHtml;
+    const formEl = slot.querySelector('[data-user-form]');
+    formEl.querySelector('[data-act="cancel-user"]').onclick = () => renderUsers();
+    formEl.querySelector('[data-act="save-user"]').onclick = async () => {
+      const errEl = formEl.querySelector('[data-form-error]');
+      errEl.textContent = '';
+      const roles = [...formEl.querySelectorAll('[data-f="roles"] input:checked')].map(i => i.value);
+      const name = formEl.querySelector('[data-f="name"]').value.trim();
+      if (!name || !roles.length) { errEl.textContent = 'Cần tên và ít nhất 1 vị trí'; return; }
+      try {
+        if (existingUser) {
+          await window.Api.updateUser(existingUser.id, { name, roles });
+        } else {
+          const openId = formEl.querySelector('[data-f="openId"]').value.trim();
+          if (!openId) { errEl.textContent = 'Cần Open ID'; return; }
+          await window.Api.createUser({ openId, name, roles });
+        }
+        renderUsers();
+      } catch (err) {
+        errEl.textContent = err.message;
+      }
+    };
+  }
+
+  document.querySelector('[data-act="add-user"]').onclick = () => bindForm(userForm(), null);
+  mainEl.querySelectorAll('.card[data-id]').forEach(card => {
+    const id = card.dataset.id;
+    card.querySelector('[data-act="edit-user"]').onclick = () => {
+      const u = users.find(x => x.id === id);
+      bindForm(userForm(u), u);
+    };
+    card.querySelector('[data-act="delete-user"]').onclick = async () => {
+      if (!confirm('Xoá người dùng này? Họ sẽ không thể đăng nhập/nhận thông báo nữa.')) return;
+      try { await window.Api.deleteUser(id); renderUsers(); } catch (err) { alert(err.message); }
+    };
+  });
+}
+
+// ─── Quản lý mẫu tin nhắn (admin) ─────────────────────────────────────
+function templateForm(variables, tpl = null) {
+  const helpHtml = `<div class="hint">Biến dùng được: ${variables.map(v => `$${v}`).join(', ')}</div>`;
+  return `
+    <div class="card" data-tpl-form="${tpl ? tpl.key : 'new'}">
+      ${tpl ? '' : '<label>Tiêu đề</label><input data-f="title" placeholder="VD: Nhắc deadline" />'}
+      <label>Nội dung</label>
+      <textarea data-f="content" rows="4">${tpl ? tpl.content : ''}</textarea>
+      ${helpHtml}
+      <div class="error" data-form-error></div>
+      <div class="actions">
+        <button class="primary" data-act="save-tpl">Lưu</button>
+        <button class="secondary" data-act="cancel-tpl">Huỷ</button>
+      </div>
+    </div>`;
+}
+
+async function renderTemplates() {
+  const { templates, variables } = await window.Api.getMessageTemplates();
+  mainEl.innerHTML = `
+    <div class="actions" style="margin-bottom:12px;"><button class="primary" data-act="add-tpl">+ Thêm mẫu tin nhắn</button></div>
+    <div id="tpl-form-slot"></div>
+    ${grid(templates.map(t => `
+      <div class="card" data-key="${t.key}">
+        <div class="card-title-row">
+          <h3>${t.title}${t.is_system ? ' <span class="meta" style="display:inline;">(hệ thống)</span>' : ''}</h3>
+          <div class="icon-actions">
+            <button class="icon-btn" data-act="edit-tpl" title="Sửa">✏️</button>
+            ${t.is_system ? '' : '<button class="icon-btn" data-act="delete-tpl" title="Xoá">🗑️</button>'}
+          </div>
+        </div>
+        <div class="note" style="white-space:pre-wrap;">${t.content}</div>
+      </div>`).join(''))}`;
+
+  function bindForm(slotHtml, existingTpl) {
+    const slot = document.getElementById('tpl-form-slot');
+    slot.innerHTML = slotHtml;
+    const formEl = slot.querySelector('[data-tpl-form]');
+    formEl.querySelector('[data-act="cancel-tpl"]').onclick = () => renderTemplates();
+    formEl.querySelector('[data-act="save-tpl"]').onclick = async () => {
+      const errEl = formEl.querySelector('[data-form-error]');
+      errEl.textContent = '';
+      const content = formEl.querySelector('[data-f="content"]').value.trim();
+      if (!content) { errEl.textContent = 'Cần nội dung'; return; }
+      try {
+        if (existingTpl) {
+          await window.Api.updateMessageTemplate(existingTpl.key, { content });
+        } else {
+          const title = formEl.querySelector('[data-f="title"]').value.trim();
+          if (!title) { errEl.textContent = 'Cần tiêu đề'; return; }
+          await window.Api.createMessageTemplate({ title, content });
+        }
+        renderTemplates();
+      } catch (err) {
+        errEl.textContent = err.message;
+      }
+    };
+  }
+
+  document.querySelector('[data-act="add-tpl"]').onclick = () => bindForm(templateForm(variables), null);
+  mainEl.querySelectorAll('.card[data-key]').forEach(card => {
+    const key = card.dataset.key;
+    card.querySelector('[data-act="edit-tpl"]').onclick = () => {
+      const t = templates.find(x => x.key === key);
+      bindForm(templateForm(variables, t), t);
+    };
+    card.querySelector('[data-act="delete-tpl"]')?.addEventListener('click', async () => {
+      if (!confirm('Xoá mẫu tin nhắn này?')) return;
+      try { await window.Api.deleteMessageTemplate(key); renderTemplates(); } catch (err) { alert(err.message); }
+    });
+  });
+}
+
 function render() {
   const roles = state.roles;
   const tabs = [];
@@ -376,11 +533,18 @@ function render() {
     tabs.push({ key: 'workload', label: 'Workload' });
   }
   tabs.push({ key: 'completed', label: 'Task đã làm' });
+  if (roles.includes('admin')) {
+    tabs.push({ key: 'users', label: 'Quản lý người' });
+    tabs.push({ key: 'templates', label: 'Mẫu tin nhắn' });
+  }
 
   if (!state.tab) state.tab = tabs[0]?.key;
   setNav(tabs);
 
-  const renderers = { create: renderCreateForm, sent: renderSentTasks, mine: renderMyTasks, pending: renderPendingTasks, workload: renderWorkload, completed: renderCompleted };
+  const renderers = {
+    create: renderCreateForm, sent: renderSentTasks, mine: renderMyTasks, pending: renderPendingTasks,
+    workload: renderWorkload, completed: renderCompleted, users: renderUsers, templates: renderTemplates,
+  };
   (renderers[state.tab] || (() => { mainEl.innerHTML = '<div class="empty">Không có quyền truy cập.</div>'; }))();
 }
 
