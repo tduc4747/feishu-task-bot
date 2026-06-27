@@ -35,8 +35,8 @@ module.exports = {
     TIMEZONE: 'Asia/Ho_Chi_Minh',
   },
 
-  // ─── Link form sale gửi task ─────────────────────
-  FORM_URL: 'https://qcnkn5uzzdra.feishu.cn/share/base/form/shrcn7XkGppWliOBcM9TaNDXFqd',
+  // ─── Web app Task Manager (thay cho form Bitable cũ) ─────────────
+  WEBAPP_URL: process.env.WEBAPP_URL || 'https://feishu-task-bot-production.up.railway.app/app/',
 
   // ─── Bitable table IDs ───────────────────────────
   TABLE: {

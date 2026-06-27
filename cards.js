@@ -17,8 +17,8 @@ function cardMainMenu(roles) {
           "tag": "button",
           "text": { "tag": "plain_text", "content": "Gửi task mới" },
           "type": "primary",
-          "url": config.FORM_URL,
-          "multi_url": { "url": config.FORM_URL, "pc_url": config.FORM_URL, "android_url": config.FORM_URL, "ios_url": config.FORM_URL }
+          "url": config.WEBAPP_URL,
+          "multi_url": { "url": config.WEBAPP_URL, "pc_url": config.WEBAPP_URL, "android_url": config.WEBAPP_URL, "ios_url": config.WEBAPP_URL }
         },
         {
           "tag": "button",
