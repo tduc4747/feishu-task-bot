@@ -6,7 +6,9 @@
 <title>Task Manager</title>
 <style>
   body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; margin: 0; background: #f5f6f8; color: #1f2329; }
-  header { background: #2b5ce6; color: white; padding: 14px 16px; font-weight: 600; font-size: 18px; }
+  header { background: #2b5ce6; color: white; padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header .title { font-weight: 600; font-size: 18px; }
+  header .user-info { font-size: 13px; opacity: 0.9; }
   nav { display: flex; gap: 8px; padding: 10px 16px; background: white; border-bottom: 1px solid #e5e6eb; overflow-x: auto; }
   nav button { border: none; background: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 14px; color: #4e5969; }
   nav button.active { background: #e8f0ff; color: #2b5ce6; font-weight: 600; }
@@ -15,6 +17,7 @@
   .card h3 { margin: 0 0 6px; font-size: 15px; }
   .card .meta { font-size: 13px; color: #4e5969; margin: 2px 0; }
   .card .actions { margin-top: 10px; display: flex; gap: 8px; }
+  .card .note { margin-top: 8px; padding: 8px 10px; background: #fff9e6; border-left: 3px solid #f0b132; border-radius: 4px; font-size: 13px; color: #5c4a1a; white-space: pre-wrap; }
   button.primary { background: #2b5ce6; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
   button.secondary { background: #e5e6eb; color: #1f2329; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
   form label { display: block; margin-top: 12px; font-size: 13px; color: #4e5969; font-weight: 600; }
@@ -28,7 +31,10 @@
 </style>
 </head>
 <body>
-<header>📋 Task Manager</header>
+<header>
+  <span class="title">📋 Task Manager</span>
+  <span class="user-info" id="user-info"></span>
+</header>
 <nav id="nav"></nav>
 <main id="main"><div class="empty">Đang tải...</div></main>
 

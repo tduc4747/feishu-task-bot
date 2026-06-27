@@ -38,8 +38,8 @@ router.use(auth.requireAuth);
 
 // ─── Thông tin user đang đăng nhập (dùng để render UI theo role) ────
 router.get('/me', async (req, res) => {
-  const roles = await db.getUserRole(req.openId);
-  res.json({ openId: req.openId, roles });
+  const info = await db.getUserInfo(req.openId);
+  res.json({ openId: req.openId, name: info?.name || null, roles: info?.roles || [] });
 });
 
 // ─── Danh sách thành viên DS_TEAM (dropdown "Người giao") ───────────

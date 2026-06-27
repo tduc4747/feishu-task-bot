@@ -94,7 +94,7 @@ async function getMyTasks(openId) {
   const res = await pool.query(
     `SELECT * FROM tasks
      WHERE nguoi_thuc_hien_id = $1 AND status NOT IN ($2, $3)
-     ORDER BY created_at`,
+     ORDER BY deadline ASC NULLS LAST`,
     [openId, STATUS.HOAN_THANH, STATUS.CHO_GAN]
   );
   return res.rows.map(rowToRecord);
@@ -198,6 +198,11 @@ async function getUserRole(openId) {
   return res.rows[0]?.roles || [];
 }
 
+async function getUserInfo(openId) {
+  const res = await pool.query('SELECT name, roles FROM users WHERE open_id = $1', [openId]);
+  return res.rows[0] || null;
+}
+
 // ─── Kiểm tra user còn trong DS_TEAM hiện tại không (tránh nhắn nhầm người đã bị xoá) ───
 async function userExists(openId) {
   if (!openId) return false;
@@ -256,5 +261,5 @@ module.exports = {
   pool, init, INTERNAL_FIELDS,
   getAllTasks, getRecord, getMyTasks, getTasksBySale, getPendingTasks, getCompletedTasks,
   updateRecord, createTask,
-  upsertUser, getUserRole, userExists, getMediaMembers, getAdminIds, getWorkload, getTeamMembers,
+  upsertUser, getUserRole, getUserInfo, userExists, getMediaMembers, getAdminIds, getWorkload, getTeamMembers,
 };

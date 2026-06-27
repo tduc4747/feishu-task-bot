@@ -19,6 +19,13 @@ function fmtDate(ms) {
 }
 function userName(val) { return val?.[0]?.name || 'N/A'; }
 
+const ROLE_LABEL = { admin: 'ADMIN', sale: 'SALE', media: 'MEDIA' };
+const ROLE_RANK = { admin: 3, sale: 2, media: 1 };
+function highestRoleLabel(roles) {
+  const top = [...roles].sort((a, b) => (ROLE_RANK[b] || 0) - (ROLE_RANK[a] || 0))[0];
+  return ROLE_LABEL[top] || '';
+}
+
 function setNav(tabs) {
   navEl.innerHTML = '';
   tabs.forEach(t => {
@@ -30,15 +37,22 @@ function setNav(tabs) {
   });
 }
 
-function taskCard(t, actionsHtml) {
+// opts: { actionsHtml, person: 'giao'|'thuchien'|'none', showStatus, showMota }
+function taskCard(t, opts = {}) {
+  const { actionsHtml = '', person = 'none', showStatus = true, showMota = false } = opts;
   const f = t.fields;
+  let personLine = '';
+  if (person === 'giao') personLine = `<div class="meta">👤 Người giao: ${userName(f[COLS.NGUOI_GIAO])}</div>`;
+  else if (person === 'thuchien') personLine = `<div class="meta">👤 Người thực hiện: ${userName(f[COLS.NGUOI_THUC_HIEN])}</div>`;
+
   return `
     <div class="card" data-id="${t.record_id}">
       <h3>${f[COLS.TASK_NAME] || 'N/A'}</h3>
       <div class="meta">SKU: ${f[COLS.SKU] || 'N/A'}</div>
-      <div class="meta">👤 Giao: ${userName(f[COLS.NGUOI_GIAO])} → Thực hiện: ${userName(f[COLS.NGUOI_THUC_HIEN])}</div>
-      <div class="meta">📅 Deadline: ${fmtDate(f[COLS.DEADLINE])} | 📌 ${f[COLS.TRANG_THAI]}</div>
-      ${actionsHtml || ''}
+      ${personLine}
+      <div class="meta">📅 Deadline: ${fmtDate(f[COLS.DEADLINE])}${showStatus ? ` | 📌 ${f[COLS.TRANG_THAI]}` : ''}</div>
+      ${showMota && f[COLS.MO_TA_CHI_TIET] ? `<div class="note">📝 ${f[COLS.MO_TA_CHI_TIET]}</div>` : ''}
+      ${actionsHtml}
     </div>`;
 }
 
@@ -50,7 +64,7 @@ async function renderMyTasks() {
     let action = '';
     if (status === STATUS.DANG_CHO) action = `<button class="primary" data-act="start">Bắt đầu làm</button>`;
     else if (status === STATUS.DANG_LAM) action = `<button class="secondary" data-act="pending-check">Chờ check</button>`;
-    return taskCard(t, action ? `<div class="actions">${action}</div>` : '');
+    return taskCard(t, { actionsHtml: action ? `<div class="actions">${action}</div>` : '', person: 'giao', showMota: true });
   }).join('');
   mainEl.querySelectorAll('[data-act]').forEach(btn => {
     btn.onclick = async () => {
@@ -69,7 +83,7 @@ async function renderSentTasks() {
   mainEl.innerHTML = tasks.map(t => {
     const status = t.fields[COLS.TRANG_THAI];
     const action = status === STATUS.CHO_CHECK ? `<button class="primary" data-act="complete">✅ Hoàn thành</button>` : '';
-    return taskCard(t, action ? `<div class="actions">${action}</div>` : '');
+    return taskCard(t, { actionsHtml: action ? `<div class="actions">${action}</div>` : '', person: 'thuchien', showMota: true });
   }).join('');
   mainEl.querySelectorAll('[data-act]').forEach(btn => {
     btn.onclick = async () => { await window.Api.completeTask(btn.closest('.card').dataset.id); renderSentTasks(); };
@@ -82,15 +96,20 @@ async function renderPendingTasks() {
   const mediaMembers = members.filter(m => (m.roles || []).includes('media'));
   mainEl.innerHTML = tasks.map(t => {
     const options = mediaMembers.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
-    return taskCard(t, `
+    const actionsHtml = `
       <div class="actions" style="flex-direction:column; align-items:stretch;">
-        <select data-act="assign"><option value="">Chọn người thực hiện...</option>${options}</select>
-      </div>`);
+        <select data-act="assign-select"><option value="">Chọn người thực hiện...</option>${options}</select>
+        <button class="primary" data-act="assign-confirm" style="margin-top:6px;" disabled>Xác nhận gán</button>
+      </div>`;
+    return taskCard(t, { actionsHtml, person: 'giao', showStatus: false, showMota: true });
   }).join('');
-  mainEl.querySelectorAll('[data-act="assign"]').forEach(sel => {
-    sel.onchange = async () => {
+  mainEl.querySelectorAll('.card').forEach(card => {
+    const sel = card.querySelector('[data-act="assign-select"]');
+    const btn = card.querySelector('[data-act="assign-confirm"]');
+    sel.onchange = () => { btn.disabled = !sel.value; };
+    btn.onclick = async () => {
       if (!sel.value) return;
-      await window.Api.assignTask(sel.closest('.card').dataset.id, sel.value);
+      await window.Api.assignTask(card.dataset.id, sel.value);
       renderPendingTasks();
     };
   });
@@ -126,11 +145,10 @@ async function renderCreateForm() {
   mainEl.innerHTML = `
     <form id="create-form">
       <label>Người giao (không bắt buộc)</label>
-      <select name="nguoiGiaoId"><option value="">— Mặc định là tôi —</option>${options}</select>
-      <div class="hint">Để trống nếu chính bạn là người giao task này.</div>
+      <select name="nguoiGiaoId"><option value="">Để trống nếu chính bạn là người giao task này.</option>${options}</select>
 
       <label>Yêu cầu *</label>
-      <input name="taskName" required placeholder="Tên ngắn gọn cho task" />
+      <input name="taskName" required maxlength="50" placeholder="Tên ngắn gọn cho task" />
 
       <label>Tên sản phẩm / SKU *</label>
       <input name="sku" required placeholder="Nếu nhiều SKU thì ghi ngắn gọn (KBA-804X)" />
@@ -233,6 +251,7 @@ function render() {
       return;
     }
     state.roles = me.roles;
+    document.getElementById('user-info').textContent = me.name ? `${me.name} - ${highestRoleLabel(me.roles)}` : '';
     render();
   } catch (err) {
     if (err.message !== 'redirecting') {

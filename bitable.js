@@ -8,7 +8,8 @@ const { COLS } = config;
 
 // ─── Đồng bộ 1 task từ Postgres lên Bitable (chạy nền, không block flow chính) ───
 // Lỗi ở đây chỉ log, không throw — Bitable giờ chỉ là bản sao để xem, không phải nguồn sự thật.
-async function syncTaskToBitable(task) {
+// Tự retry 1 lần nếu thất bại (token vừa hết hạn, network blip...) trước khi bỏ qua.
+async function syncTaskToBitable(task, isRetry = false) {
   try {
     const token = await getTenantToken();
     const fields = {
@@ -50,7 +51,11 @@ async function syncTaskToBitable(task) {
       }
     }
   } catch (err) {
-    console.error('syncTaskToBitable lỗi (bỏ qua, không ảnh hưởng bot):', err.response?.data || err.message);
+    if (!isRetry) {
+      await new Promise(r => setTimeout(r, 2000));
+      return syncTaskToBitable(task, true);
+    }
+    console.error('syncTaskToBitable lỗi (đã retry, bỏ qua, không ảnh hưởng bot):', err.response?.data || err.message);
   }
 }
 
