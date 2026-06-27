@@ -21,7 +21,6 @@ async function init() {
       id                  SERIAL PRIMARY KEY,
       task_name           TEXT NOT NULL,
       sku                 TEXT,
-      mo_ta_ngan          TEXT,
       mo_ta_chi_tiet      TEXT,
       status              TEXT NOT NULL DEFAULT '${STATUS.CHO_GAN}',
       nguoi_giao_id       TEXT,
@@ -54,6 +53,7 @@ async function init() {
     ALTER TABLE tasks DROP COLUMN IF EXISTS dang_lam;
     ALTER TABLE tasks DROP COLUMN IF EXISTS cho_check;
     ALTER TABLE tasks DROP COLUMN IF EXISTS done;
+    ALTER TABLE tasks DROP COLUMN IF EXISTS mo_ta_ngan;
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS attachment_url TEXT;
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
   `);
@@ -70,7 +70,6 @@ function rowToRecord(row) {
     fields: {
       [COLS.TASK_NAME]: row.task_name,
       [COLS.SKU]: row.sku,
-      [COLS.MO_TA_NGAN]: row.mo_ta_ngan,
       [COLS.MO_TA_CHI_TIET]: row.mo_ta_chi_tiet,
       [COLS.TRANG_THAI]: row.status,
       [COLS.NGUOI_GIAO]: row.nguoi_giao_id ? [{ id: row.nguoi_giao_id, name: row.nguoi_giao_name }] : null,
@@ -137,7 +136,6 @@ async function updateRecord(_tableId, recordId, fields) {
     [COLS.TRANG_THAI]: 'status',
     [COLS.TASK_NAME]: 'task_name',
     [COLS.SKU]: 'sku',
-    [COLS.MO_TA_NGAN]: 'mo_ta_ngan',
     [COLS.MO_TA_CHI_TIET]: 'mo_ta_chi_tiet',
     [COLS.DEADLINE]: 'deadline',
   };
@@ -176,12 +174,12 @@ async function updateRecord(_tableId, recordId, fields) {
   await pool.query(`UPDATE tasks SET ${sets.join(', ')} WHERE id = $${i}`, values);
 }
 
-async function createTask({ taskName, sku, moTaNgan, moTaChiTiet, deadline, nguoiGiaoId, nguoiGiaoName, attachmentUrl, bitableRecordId }) {
+async function createTask({ taskName, sku, moTaChiTiet, deadline, nguoiGiaoId, nguoiGiaoName, attachmentUrl, bitableRecordId }) {
   const res = await pool.query(
-    `INSERT INTO tasks (task_name, sku, mo_ta_ngan, mo_ta_chi_tiet, deadline, nguoi_giao_id, nguoi_giao_name, attachment_url, status, bitable_record_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    `INSERT INTO tasks (task_name, sku, mo_ta_chi_tiet, deadline, nguoi_giao_id, nguoi_giao_name, attachment_url, status, bitable_record_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING *`,
-    [taskName, sku, moTaNgan, moTaChiTiet, deadline || null, nguoiGiaoId || null, nguoiGiaoName || null, attachmentUrl || null, STATUS.CHO_GAN, bitableRecordId || null]
+    [taskName, sku, moTaChiTiet, deadline || null, nguoiGiaoId || null, nguoiGiaoName || null, attachmentUrl || null, STATUS.CHO_GAN, bitableRecordId || null]
   );
   return rowToRecord(res.rows[0]);
 }

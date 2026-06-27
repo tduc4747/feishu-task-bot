@@ -3,7 +3,6 @@ module.exports = {
   COLS: {
     TASK_NAME:        'Task',
     SKU:              'Tên sản phẩm / SKU',
-    MO_TA_NGAN:       'Mô tả ngắn',
     MO_TA_CHI_TIET:   'Mô tả chi tiết',
     TRANG_THAI:       'Trạng thái',
     NGUOI_GIAO:       'Người giao',

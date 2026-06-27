@@ -1,6 +1,6 @@
 // Phải khớp 1:1 với config.js (COLS/STATUS) ở backend — nhân bản nhỏ vì frontend không import được file Node.
 const COLS = {
-  TASK_NAME: 'Task', SKU: 'Tên sản phẩm / SKU', MO_TA_NGAN: 'Mô tả ngắn', MO_TA_CHI_TIET: 'Mô tả chi tiết',
+  TASK_NAME: 'Task', SKU: 'Tên sản phẩm / SKU', MO_TA_CHI_TIET: 'Mô tả chi tiết',
   TRANG_THAI: 'Trạng thái', NGUOI_GIAO: 'Người giao', NGUOI_THUC_HIEN: 'Người thực hiện', DEADLINE: 'Deadline',
 };
 const STATUS = {
@@ -115,7 +115,7 @@ async function renderCompleted() {
       <div class="meta">SKU: ${t.fields[COLS.SKU]}</div>
       <div class="meta">👤 Giao: ${userName(t.fields[COLS.NGUOI_GIAO])} → Thực hiện: ${userName(t.fields[COLS.NGUOI_THUC_HIEN])}</div>
       <div class="meta">📅 Ngày giao: ${fmtDate(new Date(t.created_at).getTime())} | ✅ Hoàn thành: ${t.completed_at ? fmtDate(new Date(t.completed_at).getTime()) : '—'}</div>
-      <div class="meta">${t.fields[COLS.MO_TA_NGAN] || ''}</div>
+      <div class="meta">${t.fields[COLS.MO_TA_CHI_TIET] || ''}</div>
       ${t.attachment_url ? `<div class="meta">📎 ${t.attachment_url}</div>` : ''}
     </div>`).join('');
 }
@@ -125,25 +125,21 @@ async function renderCreateForm() {
   const options = members.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
   mainEl.innerHTML = `
     <form id="create-form">
-      <label>Người giao</label>
+      <label>Người giao (không bắt buộc)</label>
       <select name="nguoiGiaoId"><option value="">— Mặc định là tôi —</option>${options}</select>
       <div class="hint">Để trống nếu chính bạn là người giao task này.</div>
+
+      <label>Yêu cầu *</label>
+      <input name="taskName" required placeholder="Tên ngắn gọn cho task" />
 
       <label>Tên sản phẩm / SKU *</label>
       <input name="sku" required placeholder="Nếu nhiều SKU thì ghi ngắn gọn (KBA-804X)" />
 
-      <label>Mô tả ngắn *</label>
-      <input name="moTaNgan" required maxlength="150" placeholder="Lật hình, xoá brand,..." />
-      <div class="charcount"><span id="char-count">0</span>/150</div>
-
-      <label>Tên task *</label>
-      <input name="taskName" required placeholder="Tên ngắn gọn cho task" />
+      <label>Mô tả chi tiết (không bắt buộc)</label>
+      <textarea name="moTaChiTiet" rows="4" placeholder="Ghi chi tiết hơn ở trên"></textarea>
 
       <label>Deadline *</label>
       <input type="date" name="deadline" required />
-
-      <label>Mô tả chi tiết</label>
-      <textarea name="moTaChiTiet" rows="4" placeholder="Ghi chi tiết hơn ở trên"></textarea>
 
       <label>File gốc (không bắt buộc)</label>
       <div class="drop-zone" id="drop-zone">Dán hoặc kéo ảnh/tệp vào đây, hoặc bấm để chọn file</div>
@@ -157,8 +153,6 @@ async function renderCreateForm() {
     </form>`;
 
   const form = document.getElementById('create-form');
-  const moTaNganInput = form.moTaNgan;
-  moTaNganInput.oninput = () => { document.getElementById('char-count').textContent = moTaNganInput.value.length; };
 
   const dropZone = document.getElementById('drop-zone');
   const fileInput = document.getElementById('file-input');
@@ -196,7 +190,6 @@ async function renderCreateForm() {
       await window.Api.createTask({
         taskName: fd.get('taskName'),
         sku: fd.get('sku'),
-        moTaNgan: fd.get('moTaNgan'),
         moTaChiTiet: fd.get('moTaChiTiet'),
         deadline: deadlineStr ? new Date(deadlineStr).getTime() : null,
         nguoiGiaoId: fd.get('nguoiGiaoId') || undefined,
@@ -216,7 +209,7 @@ function render() {
   const roles = state.roles;
   const tabs = [];
   if (roles.includes('sale') || roles.includes('admin')) tabs.push({ key: 'create', label: 'Gửi task mới' });
-  if (roles.includes('sale')) tabs.push({ key: 'sent', label: 'Task đã gửi' });
+  if (roles.includes('sale') || roles.includes('admin')) tabs.push({ key: 'sent', label: 'Task đã gửi' });
   if (roles.includes('media') || roles.includes('admin')) tabs.push({ key: 'mine', label: 'Task của tôi' });
   if (roles.includes('admin')) {
     tabs.push({ key: 'pending', label: 'Task chờ gán' });

@@ -76,12 +76,9 @@ router.get('/tasks/completed', async (req, res) => {
 // ─── Tạo task mới (Sale) ─────────────────────────────────────────────
 router.post('/tasks', auth.requireRole('sale', 'admin'), async (req, res) => {
   try {
-    const { taskName, sku, moTaNgan, moTaChiTiet, deadline, attachmentUrl, nguoiGiaoId } = req.body;
-    if (!taskName || !sku || !moTaNgan || !deadline) {
+    const { taskName, sku, moTaChiTiet, deadline, attachmentUrl, nguoiGiaoId } = req.body;
+    if (!taskName || !sku || !deadline) {
       return res.status(400).json({ error: 'Thiếu thông tin bắt buộc' });
-    }
-    if (moTaNgan.length > 150) {
-      return res.status(400).json({ error: 'Mô tả ngắn không được vượt quá 150 ký tự' });
     }
 
     let giaoId = req.openId;
@@ -98,7 +95,7 @@ router.post('/tasks', auth.requireRole('sale', 'admin'), async (req, res) => {
     }
 
     const task = await db.createTask({
-      taskName, sku, moTaNgan, moTaChiTiet, deadline,
+      taskName, sku, moTaChiTiet, deadline,
       nguoiGiaoId: giaoId, nguoiGiaoName: giaoName,
       attachmentUrl: attachmentUrl || null,
     });
@@ -115,13 +112,9 @@ router.post('/tasks', auth.requireRole('sale', 'admin'), async (req, res) => {
 router.patch('/tasks/:id', auth.requireRole('sale', 'admin'), async (req, res) => {
   try {
     const fields = {};
-    const { taskName, sku, moTaNgan, moTaChiTiet, deadline, attachmentUrl } = req.body;
-    if (moTaNgan !== undefined && moTaNgan.length > 150) {
-      return res.status(400).json({ error: 'Mô tả ngắn không được vượt quá 150 ký tự' });
-    }
+    const { taskName, sku, moTaChiTiet, deadline, attachmentUrl } = req.body;
     if (taskName !== undefined) fields[COLS.TASK_NAME] = taskName;
     if (sku !== undefined) fields[COLS.SKU] = sku;
-    if (moTaNgan !== undefined) fields[COLS.MO_TA_NGAN] = moTaNgan;
     if (moTaChiTiet !== undefined) fields[COLS.MO_TA_CHI_TIET] = moTaChiTiet;
     if (deadline !== undefined) fields[COLS.DEADLINE] = deadline;
     if (attachmentUrl !== undefined) fields[db.INTERNAL_FIELDS.ATTACHMENT_URL] = attachmentUrl;

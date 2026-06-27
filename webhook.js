@@ -26,7 +26,6 @@ async function handleNewBitableRecord(event) {
     await db.createTask({
       taskName: formatText(f[COLS.TASK_NAME]),
       sku: formatText(f[COLS.SKU]),
-      moTaNgan: formatText(f[COLS.MO_TA_NGAN]),
       moTaChiTiet: formatText(f[COLS.MO_TA_CHI_TIET]),
       deadline: f[COLS.DEADLINE] || null,
       nguoiGiaoId: nguoiGiao?.id || null,

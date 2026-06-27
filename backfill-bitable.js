@@ -17,7 +17,6 @@ async function backfillAll() {
       fields: {
         [COLS.TASK_NAME]: row.task_name,
         [COLS.SKU]: row.sku,
-        [COLS.MO_TA_NGAN]: row.mo_ta_ngan,
         [COLS.MO_TA_CHI_TIET]: row.mo_ta_chi_tiet,
         [COLS.TRANG_THAI]: row.status,
         [COLS.NGUOI_GIAO]: row.nguoi_giao_id ? [{ id: row.nguoi_giao_id, name: row.nguoi_giao_name }] : [],
