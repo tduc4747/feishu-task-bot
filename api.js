@@ -4,7 +4,7 @@ const multer = require('multer');
 const axios = require('axios');
 const FormData = require('form-data');
 const db = require('./db');
-const { getTenantToken } = require('./helpers');
+const { getTenantToken, sendDM, formatText } = require('./helpers');
 const taskActions = require('./taskActions');
 const auth = require('./auth');
 const config = require('./config');
@@ -104,6 +104,11 @@ router.post('/tasks', auth.requireRole('sale', 'admin'), async (req, res) => {
     });
 
     require('./bitable').syncTaskToBitable(task); // nền, không chờ
+
+    db.getAdminIds().then(admins => Promise.all(
+      admins.map(a => sendDM(a.id, `🆕 Có task mới cần gán!\nTask: ${formatText(task.fields[COLS.TASK_NAME])}\nSKU: ${formatText(task.fields[COLS.SKU])}\nNgười giao: ${giaoName}`))
+    )).catch(err => console.error('Thông báo admin lỗi (bỏ qua):', err.message));
+
     res.status(201).json(task);
   } catch (err) {
     console.error('POST /tasks lỗi:', err.message);
