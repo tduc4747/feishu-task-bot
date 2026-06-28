@@ -81,7 +81,7 @@ const DEFAULTS = {
   },
 };
 
-const VAR_HELP = ['ten_task', 'sku', 'mo_ta_chi_tiet', 'deadline', 'ten_nguoi_giao', 'ten_nguoi_thuc_hien', 'trang_thai'];
+const VAR_HELP = ['ten_task', 'sku', 'mo_ta_chi_tiet', 'deadline', 'ten_nguoi_giao', 'ten_nguoi_thuc_hien', 'trang_thai', 'duong_dan_dinh_kem'];
 
 // Thay $var bằng giá trị tương ứng trong vars; var không có trong vars thì giữ nguyên token gốc.
 function render(content, vars = {}) {

@@ -57,6 +57,7 @@ function taskCard(t, opts = {}) {
       ${personLine}
       <div class="meta">📅 Deadline: ${fmtDate(f[COLS.DEADLINE])}${showStatus ? ` | 📌 ${f[COLS.TRANG_THAI]}` : ''}</div>
       ${showMota && f[COLS.MO_TA_CHI_TIET] ? `<div class="note">📝 ${f[COLS.MO_TA_CHI_TIET]}</div>` : ''}
+      ${t.attachment_url ? `<div class="meta">📎 <a href="${t.attachment_url}" target="_blank" rel="noopener">Xem file đính kèm</a></div>` : ''}
       ${actionsHtml}
     </div>`;
 }
@@ -268,7 +269,7 @@ async function renderCompleted() {
         <div class="meta">👤 Giao: ${userName(t.fields[COLS.NGUOI_GIAO])} → Thực hiện: ${userName(t.fields[COLS.NGUOI_THUC_HIEN])}</div>
         <div class="meta">📅 Ngày giao: ${fmtDate(new Date(t.created_at).getTime())} | ✅ Hoàn thành: ${t.completed_at ? fmtDate(new Date(t.completed_at).getTime()) : '—'}</div>
         ${t.fields[COLS.MO_TA_CHI_TIET] ? `<div class="note">📝 ${t.fields[COLS.MO_TA_CHI_TIET]}</div>` : ''}
-        ${t.attachment_url ? `<div class="meta">📎 ${t.attachment_url}</div>` : ''}
+        ${t.attachment_url ? `<div class="meta">📎 <a href="${t.attachment_url}" target="_blank" rel="noopener">Xem file đính kèm</a></div>` : ''}
       </div>`).join(''));
 
   mainEl.innerHTML = filterBarHtml + listHtml;
@@ -597,6 +598,39 @@ async function renderTemplates() {
   });
 }
 
+// ─── Quản lý file đính kèm đã lưu trên volume (admin dọn dẹp định kỳ) ───
+function fmtSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+async function renderUploads() {
+  const files = await window.Api.listUploads();
+  const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
+
+  mainEl.innerHTML = `
+    <div class="meta" style="margin-bottom:12px;">Tổng: ${files.length} file — ${fmtSize(totalBytes)}</div>
+    ${files.length === 0 ? '<div class="empty">Chưa có file nào.</div>' : grid(files.map(f => `
+      <div class="card" data-name="${f.name}">
+        <div class="card-title-row">
+          <h3 style="font-size:13px;word-break:break-all;"><a href="${f.url}" target="_blank" rel="noopener">${f.name}</a></h3>
+          <div class="icon-actions">
+            <button class="icon-btn" data-act="delete-upload" title="Xoá">🗑️</button>
+          </div>
+        </div>
+        <div class="meta">${fmtSize(f.size)} — ${new Date(f.mtime).toLocaleString('vi-VN')}</div>
+      </div>`).join(''))}`;
+
+  mainEl.querySelectorAll('.card[data-name]').forEach(card => {
+    const name = card.dataset.name;
+    card.querySelector('[data-act="delete-upload"]').onclick = async () => {
+      if (!confirm('Xoá file này? Nếu còn task đang gắn link tới file này, link sẽ bị hỏng.')) return;
+      try { await window.Api.deleteUpload(name); renderUploads(); } catch (err) { alert(err.message); }
+    };
+  });
+}
+
 function render() {
   const roles = state.roles;
   const tabs = [];
@@ -611,6 +645,7 @@ function render() {
   if (roles.includes('admin')) {
     tabs.push({ key: 'users', label: 'Quản lý người' });
     tabs.push({ key: 'templates', label: 'Mẫu tin nhắn' });
+    tabs.push({ key: 'uploads', label: 'File đính kèm' });
   }
 
   if (!state.tab) state.tab = tabs[0]?.key;
@@ -619,6 +654,7 @@ function render() {
   const renderers = {
     create: renderCreateForm, sent: renderSentTasks, mine: renderMyTasks, pending: renderPendingTasks,
     workload: renderWorkload, completed: renderCompleted, users: renderUsers, templates: renderTemplates,
+    uploads: renderUploads,
   };
   (renderers[state.tab] || (() => { mainEl.innerHTML = '<div class="empty">Không có quyền truy cập.</div>'; }))();
 }

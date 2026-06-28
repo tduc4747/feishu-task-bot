@@ -82,6 +82,8 @@ window.Api = {
   deleteMessageTemplate: (key) => request(`/api/message-templates/${key}`, { method: 'DELETE' }),
   getSettings: () => request('/api/settings'),
   updateSettings: (body) => request('/api/settings', { method: 'PUT', body }),
+  listUploads: () => request('/api/uploads'),
+  deleteUpload: (filename) => request(`/api/uploads/${filename}`, { method: 'DELETE' }),
   uploadFile: async (file) => {
     const form = new FormData();
     form.append('file', file);

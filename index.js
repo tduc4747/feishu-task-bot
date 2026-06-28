@@ -9,11 +9,14 @@ const { startScheduler } = require('./scheduler');
 const { syncAllTasksToBitable } = require('./bitable');
 const messages = require('./messages');
 const apiRouter = require('./api');
+const uploads = require('./uploads');
 
 const app = express();
 app.use(express.json());
 app.use('/api', cors({ origin: process.env.MINI_PROGRAM_ORIGIN || true }), apiRouter);
 app.use('/app', express.static(path.join(__dirname, 'webapp/public')));
+uploads.ensureDir();
+app.use('/uploads', express.static(uploads.UPLOAD_DIR));
 
 // ─── Routes ──────────────────────────────────────────────────────
 app.post('/webhook', handleWebhook);

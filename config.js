@@ -37,6 +37,9 @@ module.exports = {
   // ─── Web app Task Manager (thay cho form Bitable cũ) ─────────────
   WEBAPP_URL: process.env.WEBAPP_URL || 'https://feishu-task-bot-production.up.railway.app/app/',
 
+  // ─── Domain gốc của bot, dùng để dựng link file đính kèm public ───
+  PUBLIC_ORIGIN: process.env.PUBLIC_ORIGIN || 'https://feishu-task-bot-production.up.railway.app',
+
   // ─── Bitable table IDs ───────────────────────────
   TABLE: {
     TASK:    process.env.BITABLE_TABLE_ID,

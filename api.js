@@ -1,15 +1,14 @@
 // ─── REST API cho Feishu Mini Program ───
 const express = require('express');
 const multer = require('multer');
-const axios = require('axios');
-const FormData = require('form-data');
 const db = require('./db');
-const { getTenantToken, sendDM, formatText } = require('./helpers');
+const { sendDM, formatText } = require('./helpers');
 const taskActions = require('./taskActions');
 const auth = require('./auth');
 const config = require('./config');
 const messages = require('./messages');
 const settings = require('./settings');
+const uploads = require('./uploads');
 
 const { COLS, STATUS } = config;
 const TASK_TABLE = config.TABLE.TASK;
@@ -239,35 +238,33 @@ router.post('/tasks/:id/complete', async (req, res) => {
   res.json(task);
 });
 
-// ─── Tải file/ảnh đính kèm lên Feishu, trả về reference để gắn vào task ───
+// ─── Tải file/ảnh đính kèm, lưu trên volume Railway (UPLOAD_DIR) ───
+// Trả về 1 link thật (https://.../uploads/xxxx.ext) — bấm mở được, gắn được
+// thẳng vào tin nhắn Feishu DM, không còn giới hạn loại file như khi đẩy qua
+// vùng "import" của Feishu Drive (chỉ nhận docx/xlsx/pdf...).
 router.post('/uploads', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Thiếu file' });
-    const token = await getTenantToken();
-    const isImage = req.file.mimetype.startsWith('image/');
-
-    if (isImage) {
-      const form = new FormData();
-      form.append('image_type', 'message');
-      form.append('image', req.file.buffer, { filename: req.file.originalname });
-      const r = await axios.post('https://open.feishu.cn/open-apis/im/v1/images', form, {
-        headers: { Authorization: `Bearer ${token}`, ...form.getHeaders() },
-      });
-      return res.json({ attachmentUrl: `feishu_image:${r.data.data.image_key}` });
-    }
-
-    const form = new FormData();
-    form.append('file_name', req.file.originalname);
-    form.append('parent_type', 'ccm_import_open');
-    form.append('size', String(req.file.size));
-    form.append('file', req.file.buffer, { filename: req.file.originalname });
-    const r = await axios.post('https://open.feishu.cn/open-apis/drive/v1/files/upload_all', form, {
-      headers: { Authorization: `Bearer ${token}`, ...form.getHeaders() },
-    });
-    res.json({ attachmentUrl: `feishu_file:${r.data.data.file_token}` });
+    const filename = uploads.saveBuffer(req.file.buffer, req.file.originalname);
+    res.json({ attachmentUrl: uploads.publicUrl(filename), fileName: req.file.originalname });
   } catch (err) {
-    console.error('upload lỗi:', err.response?.data || err.message);
+    console.error('upload lỗi:', err.message);
     res.status(500).json({ error: 'Tải file lên thất bại' });
+  }
+});
+
+// ─── Quản lý file đã lưu (admin) — phục vụ việc "lâu lâu vào dọn" ───
+router.get('/uploads', auth.requireRole('admin'), (req, res) => {
+  const files = uploads.listFiles().sort((a, b) => b.mtime - a.mtime);
+  res.json(files);
+});
+
+router.delete('/uploads/:filename', auth.requireRole('admin'), (req, res) => {
+  try {
+    uploads.deleteFile(req.params.filename);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 
