@@ -38,9 +38,13 @@ async function assignTask({ recordId, assigneeId, actorId }) {
 
   syncTaskToBitable(task); scheduleQuickSync(); // nền, không chờ + lưới an toàn 10s sau
 
+  const adminMsg = await renderMessage('task_assigned_notify_admin', vars);
+  const admins = adminMsg ? await db.getAdminIds() : [];
+
   await Promise.all([
     sendDM(assigneeId, await renderMessage('task_assigned', vars)),
     actorId && actorId !== assigneeId ? sendDM(actorId, await renderMessage('task_assign_confirm', vars)) : null,
+    ...admins.filter(a => a.id !== actorId).map(a => sendDM(a.id, adminMsg)),
   ]);
 
   return { task, members: allMembers };
@@ -58,9 +62,13 @@ async function startTask({ recordId, userId }) {
 
   syncTaskToBitable(task); scheduleQuickSync(); // nền, không chờ + lưới an toàn 10s sau
 
+  const adminMsg = await renderMessage('task_started_notify_admin', vars);
+  const admins = adminMsg ? await db.getAdminIds() : [];
+
   await Promise.all([
     sendDM(userId, await renderMessage('task_started_self', vars)),
     notifySale ? sendDM(saleId, await renderMessage('task_started_notify_sale', vars)) : null,
+    ...admins.filter(a => a.id !== userId).map(a => sendDM(a.id, adminMsg)),
   ]);
 
   return { task };
@@ -97,11 +105,12 @@ async function completeTask({ recordId, userId }) {
   const saleId = task.fields[COLS.NGUOI_GIAO]?.[0]?.id;
   const vars = buildVars(task);
 
-  const [saleActive, mediaActive, msgForSale, msgForMedia] = await Promise.all([
+  const [saleActive, mediaActive, msgForSale, msgForMedia, msgForAdmin] = await Promise.all([
     saleId ? db.userExists(saleId) : false,
     mediaId ? db.userExists(mediaId) : false,
     renderMessage('task_completed', vars),
     renderMessage('task_completed_for_media', vars),
+    renderMessage('task_completed_notify_admin', vars),
   ]);
 
   syncTaskToBitable(task); scheduleQuickSync(); // nền, không chờ + lưới an toàn 10s sau
@@ -113,6 +122,12 @@ async function completeTask({ recordId, userId }) {
   if (saleActive) { jobs.push(sendDM(saleId, msgForSale)); notifiedIds.add(saleId); }
   if (mediaActive && !notifiedIds.has(mediaId)) { jobs.push(sendDM(mediaId, msgForMedia)); notifiedIds.add(mediaId); }
   if (userId && !notifiedIds.has(userId) && await db.userExists(userId)) jobs.push(sendDM(userId, msgForSale));
+
+  if (msgForAdmin) {
+    const admins = await db.getAdminIds();
+    admins.filter(a => !notifiedIds.has(a.id) && a.id !== userId).forEach(a => jobs.push(sendDM(a.id, msgForAdmin)));
+  }
+
   await Promise.all(jobs);
 
   return { task };

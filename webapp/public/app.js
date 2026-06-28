@@ -468,20 +468,31 @@ function templateForm(variables, tpl = null) {
 
 async function renderTemplates() {
   const { templates, variables } = await window.Api.getMessageTemplates();
+
+  // Gom theo cụm (bước) để dễ quản lý/thêm-bớt: mỗi bước tối đa 3 mẫu (Sale/Media/Admin).
+  const groups = [];
+  const groupIndex = {};
+  templates.forEach(t => {
+    if (!(t.group in groupIndex)) { groupIndex[t.group] = groups.length; groups.push({ name: t.group, items: [] }); }
+    groups[groupIndex[t.group]].items.push(t);
+  });
+
   mainEl.innerHTML = `
     <div class="actions" style="margin-bottom:12px;"><button class="primary" data-act="add-tpl">+ Thêm mẫu tin nhắn</button></div>
     <div id="tpl-form-slot"></div>
-    ${grid(templates.map(t => `
-      <div class="card" data-key="${t.key}">
-        <div class="card-title-row">
-          <h3>${t.title}${t.is_system ? ' <span class="meta" style="display:inline;">(hệ thống)</span>' : ''}</h3>
-          <div class="icon-actions">
-            <button class="icon-btn" data-act="edit-tpl" title="Sửa">✏️</button>
-            ${t.is_system ? '' : '<button class="icon-btn" data-act="delete-tpl" title="Xoá">🗑️</button>'}
+    ${groups.map(g => `
+      <h3 style="margin:20px 0 8px;">${g.name}</h3>
+      ${grid(g.items.map(t => `
+        <div class="card" data-key="${t.key}">
+          <div class="card-title-row">
+            <h3>${t.title}${t.is_system ? ' <span class="meta" style="display:inline;">(hệ thống)</span>' : ''}</h3>
+            <div class="icon-actions">
+              <button class="icon-btn" data-act="edit-tpl" title="Sửa">✏️</button>
+              ${t.is_system ? '' : '<button class="icon-btn" data-act="delete-tpl" title="Xoá">🗑️</button>'}
+            </div>
           </div>
-        </div>
-        <div class="note" style="white-space:pre-wrap;">${t.content}</div>
-      </div>`).join(''))}`;
+          <div class="note" style="white-space:pre-wrap;">${t.content || '<i>(trống — không gửi)</i>'}</div>
+        </div>`).join(''))}`).join('')}`;
 
   function bindForm(slotHtml, existingTpl) {
     const slot = document.getElementById('tpl-form-slot');

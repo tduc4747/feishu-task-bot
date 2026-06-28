@@ -3,38 +3,70 @@ const db = require('./db');
 
 // Các "đầu mục" hệ thống — gắn với từng điểm bot tự gửi tin nhắn trong code.
 // Admin chỉ sửa được nội dung (content), không xoá được (xoá = phục hồi mặc định).
+// "group" gắn mỗi mẫu hệ thống vào 1 bước (step) để tab quản lý gom cụm cho dễ
+// thêm/bớt. Mỗi bước có tối đa 3 mẫu: gửi cho Sale / Media / Admin — để trống
+// nội dung nghĩa là không gửi cho vai trò đó ở bước này.
 const DEFAULTS = {
+  task_new_for_admin: {
+    title: 'Task mới → báo Admin',
+    group: 'Task mới được tạo',
+    content: '🆕 Có task mới cần gán!\nTask: $ten_task\nSKU: $sku\nNgười giao: $ten_nguoi_giao\nChi tiết: $mo_ta_chi_tiet',
+  },
+
   task_assigned: {
-    title: 'Gán task mới cho người thực hiện',
+    title: 'Gán task → báo Media (người được gán)',
+    group: 'Gán task cho người thực hiện',
     content: '📌 Bạn vừa được gán task mới!\nTask: $ten_task\nSKU: $sku\nMô tả: $mo_ta_chi_tiet\nNhắn "hi" để xem chi tiết.',
   },
   task_assign_confirm: {
-    title: 'Xác nhận đã gán task (gửi cho người bấm gán)',
-    content: '✅ Đã gán task "$ten_task" thành công.',
+    title: 'Gán task → báo Sale (người giao, nếu khác người gán)',
+    group: 'Gán task cho người thực hiện',
+    content: '✅ Đã gán task "$ten_task" thành công cho $ten_nguoi_thuc_hien.',
   },
+  task_assigned_notify_admin: {
+    title: 'Gán task → báo Admin',
+    group: 'Gán task cho người thực hiện',
+    content: '',
+  },
+
   task_started_self: {
-    title: 'Xác nhận bắt đầu làm task (gửi cho người thực hiện)',
+    title: 'Bắt đầu làm → báo Media (tự xác nhận)',
+    group: 'Bắt đầu làm',
     content: '▶️ Đã bắt đầu làm task "$ten_task"!',
   },
   task_started_notify_sale: {
-    title: 'Báo người giao khi task được bắt đầu làm',
+    title: 'Bắt đầu làm → báo Sale (người giao)',
+    group: 'Bắt đầu làm',
     content: '🔄 Task "$ten_task | $sku" đã được $ten_nguoi_thuc_hien bắt đầu thực hiện.',
   },
+  task_started_notify_admin: {
+    title: 'Bắt đầu làm → báo Admin',
+    group: 'Bắt đầu làm',
+    content: '🔄 $ten_nguoi_thuc_hien đã bắt đầu làm "$ten_task | $sku".',
+  },
+
+  // Bước "Chờ duyệt" cố tình KHÔNG có mẫu cho Admin — theo yêu cầu không báo
+  // admin ở bước này, chỉ Sale (duyệt) và Media (tự xác nhận) nhận thông báo.
   task_pending_check_self: {
-    title: 'Xác nhận chuyển trạng thái Chờ check',
+    title: 'Chờ duyệt → báo Media (tự xác nhận)',
+    group: 'Chờ duyệt (không báo Admin)',
     content: '👀 Đã chuyển sang "Chờ check". Đang chờ sale duyệt.',
   },
+
   task_completed: {
-    title: 'Báo hoàn thành task (gửi cho người giao)',
+    title: 'Hoàn thành → báo Sale (người giao)',
+    group: 'Hoàn thành',
     content: '✅ $ten_nguoi_thuc_hien đã hoàn thành task "$ten_task | $sku" của bạn!',
   },
   task_completed_for_media: {
-    title: 'Báo hoàn thành task (gửi cho người thực hiện)',
+    title: 'Hoàn thành → báo Media (người thực hiện)',
+    group: 'Hoàn thành',
     content: '🎉 Bạn đã hoàn thành task "$ten_task | $sku"! Cảm ơn bạn nhiều.',
   },
-  task_new_for_admin: {
-    title: 'Báo admin có task mới cần gán',
-    content: '🆕 Có task mới cần gán!\nTask: $ten_task\nSKU: $sku\nNgười giao: $ten_nguoi_giao',
+  task_completed_notify_admin: {
+    title: 'Hoàn thành → báo Admin',
+    group: 'Hoàn thành',
+    content: '✅ $ten_nguoi_thuc_hien đã hoàn thành "$ten_task | $sku" (giao bởi $ten_nguoi_giao).',
   },
 };
 
@@ -49,6 +81,11 @@ function render(content, vars = {}) {
   });
 }
 
+const GROUP_ORDER = [
+  'Task mới được tạo', 'Gán task cho người thực hiện', 'Bắt đầu làm',
+  'Chờ duyệt (không báo Admin)', 'Hoàn thành', 'Tuỳ chỉnh',
+];
+
 async function ensureSeeded() {
   for (const [key, d] of Object.entries(DEFAULTS)) {
     await db.pool.query(
@@ -59,15 +96,21 @@ async function ensureSeeded() {
   }
 }
 
+function withGroup(row) {
+  return { ...row, group: DEFAULTS[row.key]?.group || 'Tuỳ chỉnh' };
+}
+
 async function listTemplates() {
   const res = await db.pool.query('SELECT key, title, content, is_system, updated_at FROM message_templates ORDER BY is_system DESC, title');
-  return res.rows;
+  const rows = res.rows.map(withGroup);
+  rows.sort((a, b) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group));
+  return rows;
 }
 
 async function getTemplate(key) {
   const res = await db.pool.query('SELECT key, title, content, is_system FROM message_templates WHERE key = $1', [key]);
-  if (res.rows[0]) return res.rows[0];
-  return DEFAULTS[key] ? { key, ...DEFAULTS[key], is_system: true } : null;
+  if (res.rows[0]) return withGroup(res.rows[0]);
+  return DEFAULTS[key] ? withGroup({ key, ...DEFAULTS[key], is_system: true }) : null;
 }
 
 async function renderMessage(key, vars) {
