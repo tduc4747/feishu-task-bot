@@ -466,8 +466,42 @@ function templateForm(variables, tpl = null) {
     </div>`;
 }
 
+const DAY_LABELS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+
+function settingsCard(s) {
+  const activeDays = (s.morning_report_days || '').split(',');
+  return `
+    <div class="card" id="settings-card" style="max-width:480px;margin-bottom:24px;">
+      <h3 style="margin-top:0;">⚙️ Cài đặt báo cáo sáng</h3>
+      <label>Giờ gửi</label>
+      <input type="number" id="set-hour" min="0" max="23" value="${s.morning_report_hour}" style="width:100%;box-sizing:border-box;padding:8px;margin-top:4px;border:1px solid #c9cdd4;border-radius:6px;">
+      <label style="margin-top:12px;">Phút</label>
+      <input type="number" id="set-minute" min="0" max="59" value="${s.morning_report_minute}" style="width:100%;box-sizing:border-box;padding:8px;margin-top:4px;border:1px solid #c9cdd4;border-radius:6px;">
+      <label style="margin-top:12px;">Ngày gửi trong tuần</label>
+      <div id="set-days" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">
+        ${DAY_LABELS.map((label, idx) => `
+          <div class="day-chip" data-day="${idx}" style="padding:6px 10px;border:1px solid #c9cdd4;border-radius:6px;cursor:pointer;font-size:12px;user-select:none;${activeDays.includes(String(idx)) ? 'background:#2b5ce6;color:#fff;border-color:#2b5ce6;' : ''}">${label}</div>
+        `).join('')}
+      </div>
+      <label style="margin-top:12px;">Đối tượng gửi báo cáo Admin</label>
+      <select id="set-target" style="width:100%;box-sizing:border-box;padding:8px;margin-top:4px;border:1px solid #c9cdd4;border-radius:6px;">
+        <option value="individual" ${s.morning_report_target === 'individual' ? 'selected' : ''}>Gửi riêng từng Admin</option>
+        <option value="group" ${s.morning_report_target === 'group' ? 'selected' : ''}>Gửi vào 1 group chat</option>
+      </select>
+      <label style="margin-top:12px;">Chat ID của group (chỉ dùng khi chọn "Gửi vào group")</label>
+      <input type="text" id="set-chatid" placeholder="oc_xxxxxxxx" value="${s.morning_report_group_chat_id || ''}" style="width:100%;box-sizing:border-box;padding:8px;margin-top:4px;border:1px solid #c9cdd4;border-radius:6px;">
+      <div class="actions" style="margin-top:14px;">
+        <button class="primary" data-act="save-settings">Lưu cài đặt</button>
+        <span class="meta" id="settings-saved" style="display:none;color:#16a34a;">Đã lưu ✓</span>
+      </div>
+    </div>`;
+}
+
 async function renderTemplates() {
-  const { templates, variables } = await window.Api.getMessageTemplates();
+  const [{ templates, variables }, settings] = await Promise.all([
+    window.Api.getMessageTemplates(),
+    window.Api.getSettings(),
+  ]);
 
   // Gom theo cụm (bước) để dễ quản lý/thêm-bớt: mỗi bước tối đa 3 mẫu (Sale/Media/Admin).
   const groups = [];
@@ -478,6 +512,7 @@ async function renderTemplates() {
   });
 
   mainEl.innerHTML = `
+    ${settingsCard(settings)}
     <div class="actions" style="margin-bottom:12px;"><button class="primary" data-act="add-tpl">+ Thêm mẫu tin nhắn</button></div>
     <div id="tpl-form-slot"></div>
     ${groups.map(g => `
@@ -518,6 +553,35 @@ async function renderTemplates() {
       }
     };
   }
+
+  mainEl.querySelectorAll('#set-days .day-chip').forEach(chip => {
+    chip.onclick = () => {
+      const active = chip.style.background === 'rgb(43, 92, 230)';
+      chip.style.background = active ? '' : '#2b5ce6';
+      chip.style.color = active ? '' : '#fff';
+      chip.style.borderColor = active ? '#c9cdd4' : '#2b5ce6';
+    };
+  });
+
+  document.querySelector('[data-act="save-settings"]').onclick = async () => {
+    const days = Array.from(mainEl.querySelectorAll('#set-days .day-chip'))
+      .filter(c => c.style.background === 'rgb(43, 92, 230)')
+      .map(c => c.dataset.day).join(',');
+    try {
+      await window.Api.updateSettings({
+        morning_report_hour: document.getElementById('set-hour').value,
+        morning_report_minute: document.getElementById('set-minute').value,
+        morning_report_days: days,
+        morning_report_target: document.getElementById('set-target').value,
+        morning_report_group_chat_id: document.getElementById('set-chatid').value,
+      });
+      const tag = document.getElementById('settings-saved');
+      tag.style.display = 'inline';
+      setTimeout(() => tag.style.display = 'none', 2000);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
 
   document.querySelector('[data-act="add-tpl"]').onclick = () => bindForm(templateForm(variables), null);
   mainEl.querySelectorAll('.card[data-key]').forEach(card => {

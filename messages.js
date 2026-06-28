@@ -68,6 +68,17 @@ const DEFAULTS = {
     group: 'Hoàn thành',
     content: '✅ $ten_nguoi_thuc_hien đã hoàn thành "$ten_task | $sku" (giao bởi $ten_nguoi_giao).',
   },
+
+  morning_media_greeting: {
+    title: 'Báo cáo sáng → lời chào đầu card gửi Media',
+    group: 'Báo cáo sáng',
+    content: 'Chào $ten_nguoi_nhan! Đây là danh sách task chưa hoàn thành hôm nay:',
+  },
+  morning_admin_title: {
+    title: 'Báo cáo sáng → tiêu đề card gửi Admin',
+    group: 'Báo cáo sáng',
+    content: '☀️ Báo cáo sáng cho Admin',
+  },
 };
 
 const VAR_HELP = ['ten_task', 'sku', 'mo_ta_chi_tiet', 'deadline', 'ten_nguoi_giao', 'ten_nguoi_thuc_hien', 'trang_thai'];
@@ -83,7 +94,7 @@ function render(content, vars = {}) {
 
 const GROUP_ORDER = [
   'Task mới được tạo', 'Gán task cho người thực hiện', 'Bắt đầu làm',
-  'Chờ duyệt (không báo Admin)', 'Hoàn thành', 'Tuỳ chỉnh',
+  'Chờ duyệt (không báo Admin)', 'Hoàn thành', 'Báo cáo sáng', 'Tuỳ chỉnh',
 ];
 
 async function ensureSeeded() {

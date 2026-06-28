@@ -48,6 +48,20 @@ async function sendCard(userId, card) {
   );
 }
 
+// ─── Gửi card vào group chat (dùng cho báo cáo sáng gửi nhóm) ───
+async function sendCardToChat(chatId, card) {
+  const token = await getTenantToken();
+  await axios.post(
+    'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id',
+    {
+      receive_id: chatId,
+      msg_type: 'interactive',
+      content: JSON.stringify(card)
+    },
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+}
+
 // ─── Update card đã gửi (realtime) ──────────────────────────────
 async function updateCard(messageId, card) {
   const token = await getTenantToken();
@@ -103,4 +117,4 @@ function formatDate(val) {
   return `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`;
 }
 
-module.exports = { getTenantToken, sendDM, sendCard, updateCard, formatUser, formatText, formatDate };
+module.exports = { getTenantToken, sendDM, sendCard, sendCardToChat, updateCard, formatUser, formatText, formatDate };

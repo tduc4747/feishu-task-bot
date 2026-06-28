@@ -80,6 +80,8 @@ window.Api = {
   createMessageTemplate: (body) => request('/api/message-templates', { method: 'POST', body }),
   updateMessageTemplate: (key, body) => request(`/api/message-templates/${key}`, { method: 'PATCH', body }),
   deleteMessageTemplate: (key) => request(`/api/message-templates/${key}`, { method: 'DELETE' }),
+  getSettings: () => request('/api/settings'),
+  updateSettings: (body) => request('/api/settings', { method: 'PUT', body }),
   uploadFile: async (file) => {
     const form = new FormData();
     form.append('file', file);

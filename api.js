@@ -9,6 +9,7 @@ const taskActions = require('./taskActions');
 const auth = require('./auth');
 const config = require('./config');
 const messages = require('./messages');
+const settings = require('./settings');
 
 const { COLS, STATUS } = config;
 const TASK_TABLE = config.TABLE.TASK;
@@ -360,6 +361,20 @@ router.delete('/message-templates/:key', auth.requireRole('admin'), async (req, 
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// ─── Cài đặt báo cáo sáng (giờ/ngày/đối tượng gửi) ────────────────────
+router.get('/settings', auth.requireRole('admin'), async (req, res) => {
+  res.json(await settings.getAllSettings());
+});
+
+router.put('/settings', auth.requireRole('admin'), async (req, res) => {
+  try {
+    res.json(await settings.setSettings(req.body || {}));
+  } catch (err) {
+    console.error('PUT /settings lỗi:', err.message);
+    res.status(500).json({ error: 'Lưu cài đặt thất bại' });
   }
 });
 

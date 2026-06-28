@@ -6,10 +6,10 @@
 <title>Task Manager</title>
 <style>
   body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; margin: 0; background: #f5f6f8; color: #1f2329; }
-  header { background: #2b5ce6; color: white; padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header { background: #2b5ce6; color: white; padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; position: sticky; top: 0; z-index: 20; box-sizing: border-box; height: 56px; }
   header .title { font-weight: 600; font-size: 18px; }
   header .user-info { font-size: 13px; opacity: 0.9; }
-  nav { display: flex; gap: 8px; padding: 10px 16px; background: white; border-bottom: 1px solid #e5e6eb; overflow-x: auto; }
+  nav { display: flex; gap: 8px; padding: 10px 16px; background: white; border-bottom: 1px solid #e5e6eb; overflow-x: auto; position: sticky; top: 56px; z-index: 19; }
   nav button { border: none; background: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 14px; color: #4e5969; }
   nav button.active { background: #e8f0ff; color: #2b5ce6; font-weight: 600; }
   main { padding: 16px; max-width: 1100px; margin: 0 auto; }

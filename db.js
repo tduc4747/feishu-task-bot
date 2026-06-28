@@ -47,6 +47,11 @@ async function init() {
       created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT
+    );
   `);
 
   // Bỏ ràng buộc khoá ngoại cũ nếu bảng đã được tạo từ lần deploy trước

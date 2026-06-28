@@ -266,10 +266,11 @@ function cardWorkload(workload) {
   };
 }
 
-function cardMorningMedia(tasks, name) {
+// greeting: lời chào đã render từ mẫu tin nhắn "morning_media_greeting" (đã thay $ten_nguoi_nhan)
+function cardMorningMedia(tasks, greeting) {
   const { COLS } = config;
   const elements = [
-    { "tag": "div", "text": { "tag": "lark_md", "content": `Chào ${name}! Đây là danh sách task chưa hoàn thành hôm nay:` } },
+    { "tag": "div", "text": { "tag": "lark_md", "content": greeting } },
     { "tag": "hr" }
   ];
 
@@ -290,23 +291,41 @@ function cardMorningMedia(tasks, name) {
   };
 }
 
-function cardMorningAdmin(pendingCount, activeTasks) {
+// pendingTasks: task[] đang Chờ gán (hiện đầy đủ tên + SKU + mô tả ngắn).
+// tasksByPerson: [{ name, tasks: [{ taskName, trangThai, deadline }] }] — task đang xử lý, gom theo người.
+// title: tiêu đề đã render từ mẫu "morning_admin_title".
+function cardMorningAdmin(pendingTasks, tasksByPerson, title) {
   const { COLS } = config;
-  const activeLines = activeTasks.map(t => {
-    const taskName = formatText(t.fields[COLS.TASK_NAME]);
-    const nguoiThucHien = formatUser(t.fields[COLS.NGUOI_THUC_HIEN]);
-    const trangThai = formatText(t.fields[COLS.TRANG_THAI]);
-    return `• ${taskName} — ${nguoiThucHien} — ${trangThai}`;
-  }).join('\n');
+  const elements = [];
+
+  elements.push({ "tag": "div", "text": { "tag": "lark_md", "content": `⏳ **Task chờ gán (${pendingTasks.length})**` } });
+  if (pendingTasks.length === 0) {
+    elements.push({ "tag": "div", "text": { "tag": "lark_md", "content": "Không có" } });
+  } else {
+    pendingTasks.forEach(t => {
+      const taskName = formatText(t.fields[COLS.TASK_NAME]);
+      const sku = formatText(t.fields[COLS.SKU]);
+      const moTa = formatText(t.fields[COLS.MO_TA_CHI_TIET]);
+      elements.push({ "tag": "div", "text": { "tag": "lark_md", "content": `• **${taskName}** (${sku})\n${moTa}` } });
+    });
+  }
+
+  elements.push({ "tag": "hr" });
+  elements.push({ "tag": "div", "text": { "tag": "lark_md", "content": "**Task đang xử lý:**" } });
+
+  if (tasksByPerson.length === 0) {
+    elements.push({ "tag": "div", "text": { "tag": "lark_md", "content": "Không có" } });
+  } else {
+    tasksByPerson.forEach(p => {
+      const lines = p.tasks.map(t => `• ${t.taskName} — ${t.trangThai} — ${t.deadline}`).join('\n');
+      elements.push({ "tag": "div", "text": { "tag": "lark_md", "content": `**@${p.name}**\n${lines}` } });
+    });
+  }
 
   return {
     "config": { "wide_screen_mode": true },
-    "header": { "title": { "tag": "plain_text", "content": "☀️ Báo cáo sáng cho Admin" }, "template": "red" },
-    "elements": [
-      { "tag": "div", "text": { "tag": "lark_md", "content": `⏳ **Task chờ gán: ${pendingCount}**` } },
-      { "tag": "hr" },
-      { "tag": "div", "text": { "tag": "lark_md", "content": `**Task đang xử lý (${activeTasks.length}):**\n${activeLines || 'Không có'}` } }
-    ]
+    "header": { "title": { "tag": "plain_text", "content": title || '☀️ Báo cáo sáng cho Admin' }, "template": "red" },
+    "elements": elements
   };
 }
 
