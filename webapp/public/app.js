@@ -505,10 +505,57 @@ function openUserModal(u, onSaved) {
   });
 }
 
+// ─── Đồng bộ Open ID từ danh bạ Feishu (không cần ai nhắn "hi" cho bot) ───
+function openContactSyncModal(onDone) {
+  openModal({ title: 'Đồng bộ từ danh bạ Feishu', size: 'lg', bodyHtml: '<p class="modal-text">Đang tải danh bạ...</p>' });
+
+  window.Api.syncContacts().then(members => {
+    const newMembers = members.filter(m => !m.alreadyAdded);
+    const bodyHtml = newMembers.length === 0
+      ? '<p class="modal-text">Không có người mới — mọi người trong danh bạ đã được thêm vào hệ thống.</p>'
+      : `
+        <div class="hint" style="margin-bottom:10px;">${newMembers.length} người chưa có trong hệ thống. Chọn vị trí rồi bấm "Thêm" cho từng người.</div>
+        ${newMembers.map(m => `
+          <div class="card" data-open-id="${m.openId}" style="margin-bottom:8px;">
+            <div class="card-title-row">
+              <h3>${m.name}</h3>
+              <button type="button" class="btn-primary" data-act="add-contact">${icon('plus', 14)}Thêm</button>
+            </div>
+            <div data-f="roles">${userRolesCheckboxes([])}</div>
+          </div>`).join('')}`;
+
+    openModal({
+      title: `Đồng bộ từ danh bạ Feishu (${newMembers.length} người mới)`,
+      size: 'lg',
+      bodyHtml,
+      onMount: (panel) => {
+        panel.querySelectorAll('[data-act="add-contact"]').forEach(btn => {
+          btn.onclick = async () => {
+            const card = btn.closest('[data-open-id]');
+            const roles = [...card.querySelectorAll('[data-f="roles"] input:checked')].map(i => i.value);
+            if (!roles.length) { toast('Chọn ít nhất 1 vị trí', 'error'); return; }
+            try {
+              await window.Api.createUser({ openId: card.dataset.openId, name: card.querySelector('h3').textContent, roles });
+              card.remove();
+              toast('Đã thêm', 'success');
+              onDone();
+            } catch (err) { toast(err.message, 'error'); }
+          };
+        });
+      },
+    });
+  }).catch(err => {
+    openModal({ title: 'Đồng bộ từ danh bạ Feishu', bodyHtml: `<p class="modal-text" style="color:var(--danger);">${err.message}</p>` });
+  });
+}
+
 async function renderUsers() {
   const users = await window.Api.getUsers();
   mainEl.innerHTML = `
-    <div class="actions" style="margin-bottom:12px;"><button class="btn-primary" data-act="add-user">${icon('plus', 15)}Thêm người</button></div>
+    <div class="actions" style="margin-bottom:12px;">
+      <button class="btn-primary" data-act="add-user">${icon('plus', 15)}Thêm người</button>
+      <button class="btn-secondary" data-act="sync-contacts">${icon('users', 15)}Đồng bộ từ danh bạ Feishu</button>
+    </div>
     ${grid(users.map(u => `
       <div class="card" data-id="${u.id}">
         <div class="card-title-row">
@@ -519,6 +566,7 @@ async function renderUsers() {
       </div>`).join(''))}`;
 
   document.querySelector('[data-act="add-user"]').onclick = () => openUserModal(null, renderUsers);
+  document.querySelector('[data-act="sync-contacts"]').onclick = () => openContactSyncModal(renderUsers);
   mainEl.querySelectorAll('.card[data-id]').forEach(card => {
     const id = card.dataset.id;
     card.querySelector('[data-act="edit-user"]').onclick = () => openUserModal(users.find(x => x.id === id), renderUsers);

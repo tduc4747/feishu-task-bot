@@ -298,6 +298,20 @@ router.get('/users', auth.requireRole('admin'), async (req, res) => {
   res.json(await db.getAllUsers());
 });
 
+// Lấy toàn bộ Open ID trong tổ chức từ danh bạ Feishu — không cần ai nhắn "hi" cho bot.
+// Cần app đã được cấp quyền contact:user.base:readonly + contact:department.base:readonly.
+router.get('/contacts/sync', auth.requireRole('admin'), async (req, res) => {
+  try {
+    const members = await require('./feishu-contact').listAllOrgMembers();
+    const existing = await db.getAllUsers();
+    const existingIds = new Set(existing.map(u => u.id));
+    res.json(members.map(m => ({ ...m, alreadyAdded: existingIds.has(m.openId) })));
+  } catch (err) {
+    console.error('GET /contacts/sync lỗi:', err.response?.data || err.message);
+    res.status(500).json({ error: err.message || 'Đồng bộ danh bạ thất bại' });
+  }
+});
+
 router.post('/users', auth.requireRole('admin'), async (req, res) => {
   try {
     const { openId, name, roles } = req.body;

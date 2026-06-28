@@ -73,6 +73,7 @@ window.Api = {
   pendingCheck: (id) => request(`/api/tasks/${id}/pending-check`, { method: 'POST' }),
   completeTask: (id) => request(`/api/tasks/${id}/complete`, { method: 'POST' }),
   getUsers: () => request('/api/users'),
+  syncContacts: () => request('/api/contacts/sync'),
   createUser: (body) => request('/api/users', { method: 'POST', body }),
   updateUser: (openId, body) => request(`/api/users/${openId}`, { method: 'PATCH', body }),
   deleteUser: (openId) => request(`/api/users/${openId}`, { method: 'DELETE' }),
