@@ -1,5 +1,5 @@
 const cron = require('node-cron');
-const { sendCard, sendCardToChat, formatText, formatDate } = require('./helpers');
+const { sendDM, sendCard, sendCardToChat, formatText, formatDate } = require('./helpers');
 const { getAllTasks, getMediaMembers, getAdminIds } = require('./db');
 const { getAllSettings } = require('./settings');
 const { renderMessage } = require('./messages');
@@ -21,17 +21,23 @@ async function sendMorningNotifications() {
     const mediaMembers = await getMediaMembers();
 
     for (const member of mediaMembers) {
-      const myTasks = allTasks.filter(t => {
-        const nguoiThucHien = t.fields[COLS.NGUOI_THUC_HIEN];
-        if (!nguoiThucHien || !Array.isArray(nguoiThucHien)) return false;
-        const isAssigned = nguoiThucHien.some(u => u.id === member.id);
-        const status = t.fields[COLS.TRANG_THAI];
-        return isAssigned && activeStatuses.includes(status);
-      });
+      const myTasks = allTasks
+        .filter(t => {
+          const nguoiThucHien = t.fields[COLS.NGUOI_THUC_HIEN];
+          if (!nguoiThucHien || !Array.isArray(nguoiThucHien)) return false;
+          const isAssigned = nguoiThucHien.some(u => u.id === member.id);
+          const status = t.fields[COLS.TRANG_THAI];
+          return isAssigned && activeStatuses.includes(status);
+        })
+        // Deadline gần nhất lên đầu; task không có deadline xếp cuối.
+        .sort((a, b) => (a.fields[COLS.DEADLINE] ?? Infinity) - (b.fields[COLS.DEADLINE] ?? Infinity));
 
       if (myTasks.length > 0) {
         const greeting = await renderMessage('morning_media_greeting', { ten_nguoi_nhan: member.name });
         await sendCard(member.id, cardMorningMedia(myTasks, greeting));
+      } else {
+        const msg = await renderMessage('morning_media_no_task', { ten_nguoi_nhan: member.name });
+        if (msg) await sendDM(member.id, msg);
       }
     }
 

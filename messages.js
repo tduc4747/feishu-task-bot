@@ -70,9 +70,14 @@ const DEFAULTS = {
   },
 
   morning_media_greeting: {
-    title: 'Báo cáo sáng → lời chào đầu card gửi Media',
+    title: 'Báo cáo sáng → lời chào đầu card gửi Media (khi có task)',
     group: 'Báo cáo sáng',
-    content: 'Chào $ten_nguoi_nhan! Đây là danh sách task chưa hoàn thành hôm nay:',
+    content: 'Chào $ten_nguoi_nhan! Đây là danh sách task chưa hoàn thành hôm nay, sắp theo deadline gần nhất:',
+  },
+  morning_media_no_task: {
+    title: 'Báo cáo sáng → báo Media chưa có task',
+    group: 'Báo cáo sáng',
+    content: '😴 Chào $ten_nguoi_nhan! Bạn chưa có task nào. Hãy liên hệ Dustin để nhận task nhé.',
   },
   morning_admin_title: {
     title: 'Báo cáo sáng → tiêu đề card gửi Admin',
@@ -81,7 +86,7 @@ const DEFAULTS = {
   },
 };
 
-const VAR_HELP = ['ten_task', 'sku', 'mo_ta_chi_tiet', 'deadline', 'ten_nguoi_giao', 'ten_nguoi_thuc_hien', 'trang_thai', 'duong_dan_dinh_kem'];
+const VAR_HELP = ['ten_task', 'sku', 'mo_ta_chi_tiet', 'deadline', 'ten_nguoi_giao', 'ten_nguoi_thuc_hien', 'trang_thai', 'duong_dan_dinh_kem', 'ten_nguoi_nhan'];
 
 // Thay $var bằng giá trị tương ứng trong vars; var không có trong vars thì giữ nguyên token gốc.
 function render(content, vars = {}) {
