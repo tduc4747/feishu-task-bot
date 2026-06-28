@@ -4,48 +4,19 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Task Manager</title>
-<style>
-  body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; margin: 0; background: #f5f6f8; color: #1f2329; }
-  header { background: #2b5ce6; color: white; padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; position: sticky; top: 0; z-index: 20; box-sizing: border-box; height: 56px; }
-  header .title { font-weight: 600; font-size: 18px; }
-  header .user-info { font-size: 13px; opacity: 0.9; }
-  nav { display: flex; gap: 8px; padding: 10px 16px; background: white; border-bottom: 1px solid #e5e6eb; overflow-x: auto; position: sticky; top: 56px; z-index: 19; }
-  nav button { border: none; background: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 14px; color: #4e5969; }
-  nav button.active { background: #e8f0ff; color: #2b5ce6; font-weight: 600; }
-  main { padding: 16px; max-width: 1100px; margin: 0 auto; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-  .card { background: white; border-radius: 8px; padding: 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); display: flex; flex-direction: column; }
-  .card h3 { margin: 0; font-size: 15px; }
-  .card h3.clickable { cursor: pointer; color: #2b5ce6; }
-  .card-title-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
-  .icon-actions { display: flex; gap: 4px; flex-shrink: 0; }
-  .icon-btn { border: none; background: #f0f1f3; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; font-size: 14px; line-height: 1; padding: 0; }
-  .icon-btn:hover { background: #e5e6eb; }
-  .card .detail { margin-top: 8px; padding-top: 8px; border-top: 1px solid #e5e6eb; }
-  .card .meta { font-size: 13px; color: #4e5969; margin: 2px 0; }
-  .card .actions { margin-top: 10px; display: flex; gap: 8px; }
-  .card .note { margin-top: 8px; padding: 8px 10px; background: #fff9e6; border-left: 3px solid #f0b132; border-radius: 4px; font-size: 13px; color: #5c4a1a; white-space: pre-wrap; }
-  button.primary { background: #2b5ce6; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-  button.secondary { background: #e5e6eb; color: #1f2329; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-  form { max-width: 480px; margin: 0 auto; }
-  form label { display: block; margin-top: 12px; font-size: 13px; color: #4e5969; font-weight: 600; }
-  form input, form textarea, form select { width: 100%; box-sizing: border-box; padding: 8px; margin-top: 4px; border: 1px solid #c9cdd4; border-radius: 6px; font-size: 14px; }
-  form .hint { font-size: 12px; color: #8a8f99; margin-top: 2px; }
-  form .charcount { font-size: 12px; color: #8a8f99; text-align: right; }
-  .empty { text-align: center; color: #8a8f99; padding: 40px 0; }
-  .error { color: #d54941; font-size: 13px; margin-top: 8px; }
-  .drop-zone { border: 2px dashed #c9cdd4; border-radius: 8px; padding: 16px; text-align: center; color: #8a8f99; font-size: 13px; margin-top: 6px; cursor: pointer; }
-  .drop-zone.dragover { border-color: #2b5ce6; background: #f0f5ff; }
-</style>
+<link rel="stylesheet" href="/app/styles.css" />
 </head>
 <body>
 <header>
-  <span class="title">📋 Task Manager</span>
-  <span class="user-info" id="user-info"></span>
+  <span class="title"><span class="label">Task Manager</span></span>
+  <button type="button" id="profile-chip" class="profile-chip"></button>
 </header>
 <nav id="nav"></nav>
 <main id="main"><div class="empty">Đang tải...</div></main>
+<div id="modal-root"></div>
 
+<script src="/app/icons.js"></script>
+<script src="/app/ui.js"></script>
 <script src="/app/api.js"></script>
 <script src="/app/app.js"></script>
 </body>

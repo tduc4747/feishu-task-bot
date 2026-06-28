@@ -83,7 +83,7 @@ window.Api = {
   getSettings: () => request('/api/settings'),
   updateSettings: (body) => request('/api/settings', { method: 'PUT', body }),
   listUploads: () => request('/api/uploads'),
-  deleteUpload: (filename) => request(`/api/uploads/${filename}`, { method: 'DELETE' }),
+  deleteUploads: (filenames) => request('/api/uploads/delete-batch', { method: 'POST', body: { filenames } }),
   uploadFile: async (file) => {
     const form = new FormData();
     form.append('file', file);

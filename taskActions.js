@@ -20,7 +20,7 @@ function buildVars(task) {
     ten_nguoi_giao: task.fields[COLS.NGUOI_GIAO]?.[0]?.name || '',
     ten_nguoi_thuc_hien: task.fields[COLS.NGUOI_THUC_HIEN]?.[0]?.name || '',
     trang_thai: task.fields[COLS.TRANG_THAI] || '',
-    duong_dan_dinh_kem: task.attachment_url || '',
+    duong_dan_dinh_kem: (task.attachments || []).map(a => a.url).join('\n'),
   };
 }
 

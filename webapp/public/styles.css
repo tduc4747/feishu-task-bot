@@ -1,0 +1,201 @@
+/* ─── Design tokens — đổi giao diện chỉ cần sửa ở đây ─── */
+:root {
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --text: #18181b;
+  --text-muted: #71717a;
+  --border: #e4e4e7;
+  --accent: #3f3f9e;
+  --accent-soft: #eeeef9;
+  --accent-contrast: #ffffff;
+  --danger: #b91c1c;
+  --danger-soft: #fef2f2;
+  --success: #15803d;
+  --warning: #b45309;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --shadow: 0 1px 2px rgba(0,0,0,0.04), 0 1px 8px rgba(0,0,0,0.04);
+  --header-h: 56px;
+  --nav-h: 48px;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+.icon { display: inline-block; vertical-align: middle; }
+
+/* ─── Header ─── */
+header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  height: var(--header-h);
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+header .title { font-weight: 600; font-size: 16px; display: flex; align-items: center; gap: 8px; color: var(--text); }
+header .title .icon { color: var(--accent); }
+.profile-chip { display: flex; align-items: center; gap: 8px; cursor: pointer; border: none; background: none; padding: 4px 6px; border-radius: 999px; }
+.profile-chip:hover { background: var(--bg); }
+.avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: var(--accent-contrast); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; flex-shrink: 0; }
+.profile-chip .name { font-size: 13px; color: var(--text); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-chip .role-badge { font-size: 11px; color: var(--text-muted); }
+
+/* ─── Nav tabs ─── */
+nav {
+  display: flex;
+  gap: 4px;
+  padding: 6px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  position: sticky;
+  top: var(--header-h);
+  z-index: 25;
+  scrollbar-width: none;
+}
+nav::-webkit-scrollbar { display: none; }
+nav button {
+  border: none;
+  background: none;
+  padding: 8px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+nav button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+/* Màn hình hẹp: nav dễ bị tràn và khuất tab cuối — chỉ hiện icon, giữ tooltip tên khi hover/long-press. */
+@media (max-width: 760px) {
+  nav { gap: 2px; padding: 6px 8px; justify-content: space-between; }
+  nav button { padding: 9px; }
+  nav button span.label { display: none; }
+}
+
+main { padding: 16px; max-width: 1100px; margin: 0 auto; }
+
+/* ─── Grid & card ─── */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.card h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.card h3.clickable { cursor: pointer; color: var(--accent); }
+.card-title-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.card-title-row h3 { flex: 1; }
+.icon-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.icon-btn { border: none; background: var(--bg); width: 30px; height: 30px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text-muted); padding: 0; }
+.icon-btn:hover { background: var(--border); color: var(--text); }
+.card .meta { font-size: 12.5px; color: var(--text-muted); display: flex; align-items: center; gap: 5px; }
+.card .meta a { color: var(--accent); text-decoration: none; }
+.card .actions { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
+.card .note { margin-top: 4px; padding: 8px 10px; background: var(--bg); border-radius: 8px; font-size: 13px; color: var(--text); white-space: pre-wrap; }
+.card .detail { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 3px; }
+
+/* Trạng thái: chấm màu nhỏ, không phủ màu cả khối */
+.status-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--text-muted); }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0; }
+.status-dot.warn { background: var(--warning); }
+.status-dot.ok { background: var(--success); }
+.status-dot.idle { background: #a1a1aa; }
+
+/* ─── Buttons ─── */
+button { font-family: inherit; }
+.btn-primary, .btn-secondary, .btn-danger {
+  border: none; padding: 9px 14px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.btn-primary { background: var(--accent); color: var(--accent-contrast); }
+.btn-primary:hover { opacity: 0.92; }
+.btn-secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+.btn-secondary:hover { background: var(--border); }
+.btn-danger { background: var(--danger-soft); color: var(--danger); }
+.btn-danger:hover { opacity: 0.85; }
+button.primary { background: var(--accent); color: var(--accent-contrast); border:none; padding:9px 14px; border-radius:8px; cursor:pointer; font-size:13px; }
+button.secondary { background: var(--bg); color: var(--text); border:1px solid var(--border); padding:9px 14px; border-radius:8px; cursor:pointer; font-size:13px; }
+
+/* ─── Forms ─── */
+form { max-width: 480px; margin: 0 auto; }
+label { display: block; margin-top: 12px; font-size: 12.5px; color: var(--text-muted); font-weight: 600; }
+input, textarea, select {
+  width: 100%; box-sizing: border-box; padding: 9px 10px; margin-top: 4px;
+  border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: var(--surface); color: var(--text);
+  font-family: inherit;
+}
+input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
+.hint { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+.input-counter-wrap { position: relative; }
+.input-counter-wrap input { padding-right: 52px; }
+.char-counter { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 11px; color: var(--text-muted); pointer-events: none; }
+.empty { text-align: center; color: var(--text-muted); padding: 48px 0; font-size: 13px; }
+.error { color: var(--danger); font-size: 13px; margin-top: 8px; }
+.drop-zone { border: 1.5px dashed var(--border); border-radius: var(--radius); padding: 18px; text-align: center; color: var(--text-muted); font-size: 13px; margin-top: 6px; cursor: pointer; }
+.drop-zone.dragover { border-color: var(--accent); background: var(--accent-soft); }
+
+.day-chip { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 12px; user-select: none; color: var(--text-muted); }
+.day-chip.active { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+
+/* ─── Modal ─── */
+#modal-root { position: fixed; inset: 0; z-index: 100; pointer-events: none; }
+#modal-root.open { pointer-events: auto; }
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(24,24,27,0.45);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.modal-panel {
+  background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow);
+  width: 100%; max-height: 90vh; overflow-y: auto; display: flex; flex-direction: column;
+}
+.modal-sm { max-width: 360px; }
+.modal-md { max-width: 480px; }
+.modal-lg { max-width: 720px; }
+.modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid var(--border); }
+.modal-header h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.modal-body { padding: 18px; }
+.modal-text { font-size: 13.5px; color: var(--text); margin: 0; }
+.modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--border); }
+
+/* ─── Welcome modal ─── */
+.welcome-body { text-align: center; padding: 8px 0 4px; }
+.welcome-avatar { width: 56px; height: 56px; border-radius: 50%; background: var(--accent); color: var(--accent-contrast); display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 700; margin: 0 auto 14px; }
+.welcome-name { font-size: 16px; font-weight: 600; margin: 0; }
+.welcome-role { font-size: 12.5px; color: var(--text-muted); margin: 4px 0 0; }
+
+/* ─── Toast ─── */
+.toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translate(-50%, 12px);
+  background: var(--text); color: #fff; padding: 10px 16px; border-radius: 999px;
+  font-size: 13px; opacity: 0; transition: opacity 0.2s, transform 0.2s; z-index: 200; pointer-events: none;
+  max-width: 90vw; text-align: center;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast-error { background: var(--danger); }
+
+/* ─── Responsive: điện thoại ─── */
+@media (max-width: 640px) {
+  main { padding: 12px; }
+  .grid { grid-template-columns: 1fr; }
+  header .title span.label { display: none; }
+  .profile-chip .name { max-width: 80px; }
+  .modal-overlay { padding: 0; align-items: flex-end; }
+  .modal-panel { max-width: 100%; border-radius: var(--radius-lg) var(--radius-lg) 0 0; max-height: 85vh; }
+}

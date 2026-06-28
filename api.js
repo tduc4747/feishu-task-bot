@@ -82,7 +82,7 @@ router.get('/tasks/completed', async (req, res) => {
 // ─── Tạo task mới (Sale) ─────────────────────────────────────────────
 router.post('/tasks', auth.requireRole('sale', 'admin'), async (req, res) => {
   try {
-    const { taskName, sku, moTaChiTiet, deadline, attachmentUrl, nguoiGiaoId } = req.body;
+    const { taskName, sku, moTaChiTiet, deadline, attachments, nguoiGiaoId } = req.body;
     if (!taskName || !sku || !deadline) {
       return res.status(400).json({ error: 'Thiếu thông tin bắt buộc' });
     }
@@ -106,7 +106,7 @@ router.post('/tasks', auth.requireRole('sale', 'admin'), async (req, res) => {
     const task = await db.createTask({
       taskName, sku, moTaChiTiet, deadline,
       nguoiGiaoId: giaoId, nguoiGiaoName: giaoName,
-      attachmentUrl: attachmentUrl || null,
+      attachments: Array.isArray(attachments) ? attachments : [],
     });
 
     require('./bitable').syncTaskToBitable(task); require('./bitable').scheduleQuickSync(); // nền
@@ -145,7 +145,7 @@ router.patch('/tasks/:id', auth.requireRole('sale', 'admin'), async (req, res) =
     if (!(await assertOwnsTask(req, res))) return;
 
     const fields = {};
-    const { taskName, sku, moTaChiTiet, deadline, attachmentUrl } = req.body;
+    const { taskName, sku, moTaChiTiet, deadline } = req.body;
     if (taskName !== undefined && taskName.length > 50) {
       return res.status(400).json({ error: 'Yêu cầu không được vượt quá 50 ký tự' });
     }
@@ -153,7 +153,6 @@ router.patch('/tasks/:id', auth.requireRole('sale', 'admin'), async (req, res) =
     if (sku !== undefined) fields[COLS.SKU] = sku;
     if (moTaChiTiet !== undefined) fields[COLS.MO_TA_CHI_TIET] = moTaChiTiet;
     if (deadline !== undefined) fields[COLS.DEADLINE] = deadline;
-    if (attachmentUrl !== undefined) fields[db.INTERNAL_FIELDS.ATTACHMENT_URL] = attachmentUrl;
 
     await db.updateRecord(TASK_TABLE, req.params.id, fields);
     const task = await db.getRecord(TASK_TABLE, req.params.id);
@@ -253,17 +252,41 @@ router.post('/uploads', upload.single('file'), async (req, res) => {
   }
 });
 
-// ─── Quản lý file đã lưu (admin) — phục vụ việc "lâu lâu vào dọn" ───
-router.get('/uploads', auth.requireRole('admin'), (req, res) => {
-  const files = uploads.listFiles().sort((a, b) => b.mtime - a.mtime);
-  res.json(files);
+// ─── Quản lý file đã lưu (admin) — gom theo task để dễ dọn dẹp định kỳ ───
+router.get('/uploads', auth.requireRole('admin'), async (req, res) => {
+  const files = uploads.listFiles();
+  const attachments = await db.getAllAttachments();
+  const byUrl = new Map(attachments.map(a => [a.file_url, a]));
+
+  const groupsByTask = new Map();
+  const orphans = [];
+  for (const f of files) {
+    const match = byUrl.get(f.url);
+    if (!match) { orphans.push(f); continue; }
+    if (!groupsByTask.has(match.task_id)) {
+      groupsByTask.set(match.task_id, { taskId: match.task_id, taskName: match.task_name, files: [] });
+    }
+    groupsByTask.get(match.task_id).files.push(f);
+  }
+
+  const groups = [...groupsByTask.values()].sort((a, b) => b.taskId - a.taskId);
+  orphans.sort((a, b) => b.mtime - a.mtime);
+  res.json({ groups, orphans });
 });
 
-router.delete('/uploads/:filename', auth.requireRole('admin'), (req, res) => {
+// Xoá theo lô — xoá file vật lý trên volume + dọn luôn tham chiếu trong task_attachments.
+router.post('/uploads/delete-batch', auth.requireRole('admin'), async (req, res) => {
   try {
-    uploads.deleteFile(req.params.filename);
+    const { filenames } = req.body || {};
+    if (!Array.isArray(filenames) || !filenames.length) {
+      return res.status(400).json({ error: 'Thiếu danh sách file cần xoá' });
+    }
+    const urls = filenames.map(f => uploads.publicUrl(f));
+    await db.deleteAttachmentsByUrls(urls);
+    for (const filename of filenames) uploads.deleteFile(filename);
     res.json({ ok: true });
   } catch (err) {
+    console.error('POST /uploads/delete-batch lỗi:', err.message);
     res.status(400).json({ error: err.message });
   }
 });

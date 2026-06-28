@@ -23,12 +23,6 @@ function publicUrl(filename) {
   return `${config.PUBLIC_ORIGIN}/uploads/${filename}`;
 }
 
-// urlOrNull -> tên file (để xoá), hoặc null nếu không phải link do hệ thống này tạo (vd dữ liệu cũ feishu_*)
-function filenameFromUrl(url) {
-  if (!url || !url.startsWith(`${config.PUBLIC_ORIGIN}/uploads/`)) return null;
-  return url.split('/uploads/')[1];
-}
-
 function listFiles() {
   ensureDir();
   return fs.readdirSync(UPLOAD_DIR).map(name => {
@@ -44,4 +38,4 @@ function deleteFile(filename) {
   if (fs.existsSync(full)) fs.unlinkSync(full);
 }
 
-module.exports = { UPLOAD_DIR, ensureDir, saveBuffer, publicUrl, filenameFromUrl, listFiles, deleteFile };
+module.exports = { UPLOAD_DIR, ensureDir, saveBuffer, publicUrl, listFiles, deleteFile };
