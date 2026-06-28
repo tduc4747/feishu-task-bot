@@ -57,7 +57,7 @@ function attachmentsHtml(t) {
 
 const TAB_ICON = {
   create: 'send', sent: 'file', mine: 'check', pending: 'clock', workload: 'users',
-  completed: 'check', users: 'user', templates: 'template', uploads: 'paperclip',
+  completed: 'check', users: 'user', templates: 'template', uploads: 'paperclip', manageAll: 'settings',
 };
 
 function setNav(tabs) {
@@ -82,6 +82,7 @@ function taskCard(t, opts = {}) {
   let personLine = '';
   if (person === 'giao') personLine = `<div class="meta">${icon('user', 14)}Người giao: ${userName(f[COLS.NGUOI_GIAO])}</div>`;
   else if (person === 'thuchien') personLine = `<div class="meta">${icon('user', 14)}Người thực hiện: ${userName(f[COLS.NGUOI_THUC_HIEN])}</div>`;
+  else if (person === 'both') personLine = `<div class="meta">${icon('user', 14)}Người giao: ${userName(f[COLS.NGUOI_GIAO])} → Người thực hiện: ${userName(f[COLS.NGUOI_THUC_HIEN])}</div>`;
 
   return `
     <div class="card" data-id="${t.record_id}">
@@ -261,12 +262,12 @@ async function renderPendingTasks() {
 
 // ─── Modal: chi tiết task của 1 người (Workload) ───
 async function openWorkloadDetailModal(member) {
-  openModal({ title: `Task của ${member.name}`, bodyHtml: '<p class="modal-text">Đang tải...</p>' });
+  openModal({ title: `Task của ${member.name}`, size: 'lg', bodyHtml: '<p class="modal-text">Đang tải...</p>' });
   const tasks = await window.Api.getTasksByMedia(member.id);
   const bodyHtml = tasks.length === 0
     ? '<p class="modal-text">Không có task đang xử lý.</p>'
-    : tasks.map(t => `<div class="meta" style="margin-bottom:6px;">• ${taskLabel(t)} ${statusPill(t.fields[COLS.TRANG_THAI])} — ${fmtDate(t.fields[COLS.DEADLINE])}</div>`).join('');
-  openModal({ title: `Task của ${member.name}`, bodyHtml });
+    : grid(tasks.map(t => taskCard(t, { person: 'giao', showMota: true })).join(''));
+  openModal({ title: `Task của ${member.name}`, size: 'lg', bodyHtml });
 }
 
 async function renderWorkload() {
@@ -283,6 +284,72 @@ async function renderWorkload() {
     card.querySelector('[data-act="show-detail"]').onclick = () => {
       const m = workload.find(x => x.id === card.dataset.id);
       openWorkloadDetailModal(m);
+    };
+  });
+}
+
+// ─── Modal: sửa toàn bộ thông tin task (Admin, tab Quản lý tổng) — trừ người giao ───
+function openManageTaskModal(t, mediaMembers, onSaved) {
+  const f = t.fields;
+  const deadlineVal = f[COLS.DEADLINE] ? new Date(Number(f[COLS.DEADLINE])).toISOString().slice(0, 10) : '';
+  const currentAssigneeId = f[COLS.NGUOI_THUC_HIEN]?.[0]?.id || '';
+  const assigneeOptions = mediaMembers.map(m => `<option value="${m.id}" ${m.id === currentAssigneeId ? 'selected' : ''}>${m.name}</option>`).join('');
+  const statusOptions = Object.values(STATUS).map(s => `<option value="${s}" ${s === f[COLS.TRANG_THAI] ? 'selected' : ''}>${s}</option>`).join('');
+
+  openModal({
+    title: `Sửa task: ${taskLabel(t)}`,
+    size: 'lg',
+    bodyHtml: `
+      <label>Người giao (không thể đổi)</label>
+      <input value="${esc(userName(f[COLS.NGUOI_GIAO]))}" disabled />
+      <label>Yêu cầu</label>
+      <input data-edit="taskName" maxlength="50" value="${esc(f[COLS.TASK_NAME])}" />
+      <label>SKU</label>
+      <input data-edit="sku" value="${esc(f[COLS.SKU])}" />
+      <label>Mô tả chi tiết</label>
+      <textarea data-edit="moTaChiTiet" rows="3">${f[COLS.MO_TA_CHI_TIET] || ''}</textarea>
+      <label>Deadline</label>
+      <input type="date" data-edit="deadline" value="${deadlineVal}" />
+      <label>Người thực hiện</label>
+      <select data-edit="assignee"><option value="">Chưa gán</option>${assigneeOptions}</select>
+      <label>Trạng thái</label>
+      <select data-edit="status">${statusOptions}</select>
+      <div class="error" data-form-error></div>`,
+    footerHtml: `
+      <button type="button" class="btn-secondary" data-modal-close>Huỷ</button>
+      <button type="button" class="btn-primary" data-act="save">${icon('check', 15)}Lưu</button>`,
+    onMount: (panel) => {
+      panel.querySelector('[data-act="save"]').onclick = async () => {
+        const errEl = panel.querySelector('[data-form-error]');
+        const deadlineVal2 = panel.querySelector('[data-edit="deadline"]').value;
+        const assigneeVal = panel.querySelector('[data-edit="assignee"]').value;
+        try {
+          await window.Api.updateTaskAdmin(t.record_id, {
+            taskName: panel.querySelector('[data-edit="taskName"]').value,
+            sku: panel.querySelector('[data-edit="sku"]').value,
+            moTaChiTiet: panel.querySelector('[data-edit="moTaChiTiet"]').value,
+            deadline: deadlineVal2 ? new Date(deadlineVal2).getTime() : null,
+            assigneeId: assigneeVal || null,
+            status: panel.querySelector('[data-edit="status"]').value,
+          });
+          closeModal();
+          onSaved();
+        } catch (err) { errEl.textContent = err.message; }
+      };
+    },
+  });
+}
+
+async function renderManageAll() {
+  const [tasks, members] = await Promise.all([window.Api.getAllTasksAdmin(), window.Api.getTeamMembers()]);
+  const mediaMembers = members.filter(m => (m.roles || []).includes('media'));
+  if (tasks.length === 0) { mainEl.innerHTML = '<div class="empty">Chưa có task nào.</div>'; return; }
+  mainEl.innerHTML = grid(tasks.map(t => taskCard(t, { titleActionsHtml: iconBtn('edit', 'Sửa'), person: 'both', showMota: true })).join(''));
+
+  mainEl.querySelectorAll('.card').forEach(card => {
+    const id = card.dataset.id;
+    card.querySelector('[data-act="edit"]').onclick = () => {
+      openManageTaskModal(tasks.find(t => t.record_id === id), mediaMembers, renderManageAll);
     };
   });
 }
@@ -785,6 +852,7 @@ function render() {
   }
   tabs.push({ key: 'completed', label: 'Task đã làm' });
   if (roles.includes('admin')) {
+    tabs.push({ key: 'manageAll', label: 'Quản lý tổng' });
     tabs.push({ key: 'users', label: 'Quản lý người' });
     tabs.push({ key: 'templates', label: 'Mẫu tin nhắn' });
     tabs.push({ key: 'uploads', label: 'File đính kèm' });
@@ -795,8 +863,8 @@ function render() {
 
   const renderers = {
     create: renderCreateForm, sent: renderSentTasks, mine: renderMyTasks, pending: renderPendingTasks,
-    workload: renderWorkload, completed: renderCompleted, users: renderUsers, templates: renderTemplates,
-    uploads: renderUploads,
+    workload: renderWorkload, completed: renderCompleted, manageAll: renderManageAll, users: renderUsers,
+    templates: renderTemplates, uploads: renderUploads,
   };
   (renderers[state.tab] || (() => { mainEl.innerHTML = '<div class="empty">Không có quyền truy cập.</div>'; }))();
 }

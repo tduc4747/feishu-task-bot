@@ -66,6 +66,11 @@ router.get('/tasks/workload', auth.requireRole('admin'), async (req, res) => {
   res.json(await db.getWorkload());
 });
 
+// ─── Toàn bộ task trong hệ thống, mọi trạng thái/người (tab "Quản lý tổng") ───
+router.get('/tasks/all', auth.requireRole('admin'), async (req, res) => {
+  res.json(await db.getAllTasks());
+});
+
 router.get('/tasks/by-media/:id', auth.requireRole('admin'), async (req, res) => {
   res.json(await db.getMyTasks(req.params.id));
 });
@@ -161,6 +166,54 @@ router.patch('/tasks/:id', auth.requireRole('sale', 'admin'), async (req, res) =
   } catch (err) {
     console.error('PATCH /tasks/:id lỗi:', err.message);
     res.status(500).json({ error: 'Cập nhật task thất bại' });
+  }
+});
+
+// ─── Sửa toàn bộ task (Admin, tab "Quản lý tổng") — trừ người giao ──────
+// Đổi trạng thái/người thực hiện ở đây phải đi qua đúng taskActions để bắn
+// thông báo Feishu giống luồng tự thao tác của sale/media, không tạo luồng riêng.
+router.patch('/tasks/:id/admin', auth.requireRole('admin'), async (req, res) => {
+  try {
+    const before = await db.getRecord(TASK_TABLE, req.params.id);
+    if (!before) return res.status(404).json({ error: 'Không tìm thấy task' });
+
+    const { taskName, sku, moTaChiTiet, deadline, status, assigneeId } = req.body;
+    if (taskName !== undefined && taskName.length > 50) {
+      return res.status(400).json({ error: 'Yêu cầu không được vượt quá 50 ký tự' });
+    }
+
+    const fields = {};
+    if (taskName !== undefined) fields[COLS.TASK_NAME] = taskName;
+    if (sku !== undefined) fields[COLS.SKU] = sku;
+    if (moTaChiTiet !== undefined) fields[COLS.MO_TA_CHI_TIET] = moTaChiTiet;
+    if (deadline !== undefined) fields[COLS.DEADLINE] = deadline;
+    if (Object.keys(fields).length) await db.updateRecord(TASK_TABLE, req.params.id, fields);
+
+    const currentAssigneeId = before.fields[COLS.NGUOI_THUC_HIEN]?.[0]?.id || null;
+    if (assigneeId !== undefined && assigneeId !== currentAssigneeId) {
+      if (!assigneeId) return res.status(400).json({ error: 'Không thể bỏ người thực hiện, hãy chọn người khác' });
+      await taskActions.assignTask({ recordId: req.params.id, assigneeId, actorId: req.openId });
+    }
+
+    if (status !== undefined) {
+      if (!Object.values(STATUS).includes(status)) {
+        return res.status(400).json({ error: 'Trạng thái không hợp lệ' });
+      }
+      const current = await db.getRecord(TASK_TABLE, req.params.id);
+      if (status !== current.fields[COLS.TRANG_THAI]) {
+        if (status === STATUS.DANG_LAM) await taskActions.startTask({ recordId: req.params.id, userId: req.openId });
+        else if (status === STATUS.CHO_CHECK) await taskActions.pendingCheckTask({ recordId: req.params.id, userId: req.openId });
+        else if (status === STATUS.HOAN_THANH) await taskActions.completeTask({ recordId: req.params.id, userId: req.openId });
+        else await db.updateRecord(TASK_TABLE, req.params.id, { [COLS.TRANG_THAI]: status });
+      }
+    }
+
+    const updated = await db.getRecord(TASK_TABLE, req.params.id);
+    require('./bitable').syncTaskToBitable(updated); require('./bitable').scheduleQuickSync();
+    res.json(updated);
+  } catch (err) {
+    console.error('PATCH /tasks/:id/admin lỗi:', err.message);
+    res.status(400).json({ error: err.message || 'Cập nhật task thất bại' });
   }
 });
 

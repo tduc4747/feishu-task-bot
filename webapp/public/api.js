@@ -59,6 +59,8 @@ window.Api = {
   getSentTasks: () => request('/api/tasks/sent'),
   getPendingTasks: () => request('/api/tasks/pending'),
   getWorkload: () => request('/api/tasks/workload'),
+  getAllTasksAdmin: () => request('/api/tasks/all'),
+  updateTaskAdmin: (id, body) => request(`/api/tasks/${id}/admin`, { method: 'PATCH', body }),
   getTasksByMedia: (id) => request(`/api/tasks/by-media/${id}`),
   getCompletedTasks: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
