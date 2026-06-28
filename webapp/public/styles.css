@@ -143,6 +143,8 @@ input, textarea, select {
 }
 input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
 .hint { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+/* Select hiện gợi ý ngay trong ô (option đầu) — đổi cỡ chữ/màu giống .hint khi chưa chọn gì */
+select.placeholder-active { font-size: 12px; color: var(--text-muted); }
 .input-counter-wrap { position: relative; }
 .input-counter-wrap input { padding-right: 52px; }
 .char-counter { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 11px; color: var(--text-muted); pointer-events: none; }

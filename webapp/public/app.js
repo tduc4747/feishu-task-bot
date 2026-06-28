@@ -41,9 +41,10 @@ function grid(html) { return `<div class="grid">${html}</div>`; }
 function statusPill(status) {
   return `<span class="status-pill"><span class="status-dot ${STATUS_DOT[status] || ''}"></span>${status || '—'}</span>`;
 }
-// ID hiện trước tên task trong mọi card, ví dụ "01-Lật hình sản phẩm".
+// ID hiện trước tên task trong mọi card, ví dụ "12-Lật hình sản phẩm".
+// Dùng đúng record_id (= cột id trong bảng tasks) — không đệm số 0, để khớp 100% với ID thật trong DB.
 function taskLabel(t) {
-  return `${String(t.record_id).padStart(2, '0')}-${t.fields[COLS.TASK_NAME] || 'N/A'}`;
+  return `${t.record_id}-${t.fields[COLS.TASK_NAME] || 'N/A'}`;
 }
 function attachmentsHtml(t) {
   const list = t.attachments || [];
@@ -356,8 +357,7 @@ async function renderCreateForm() {
   mainEl.innerHTML = `
     <form id="create-form">
       <label>Người giao (không bắt buộc)</label>
-      <select name="nguoiGiaoId"><option value="">-- Chọn người giao --</option>${options}</select>
-      <div class="hint">Để trống nếu chính bạn là người giao task này.</div>
+      <select name="nguoiGiaoId" id="nguoi-giao-select" class="placeholder-active"><option value="">Để trống nếu chính bạn là người giao task này.</option>${options}</select>
 
       <label>Yêu cầu *</label>
       <div class="input-counter-wrap">
@@ -387,6 +387,9 @@ async function renderCreateForm() {
     </form>`;
 
   const form = document.getElementById('create-form');
+
+  const nguoiGiaoSelect = document.getElementById('nguoi-giao-select');
+  nguoiGiaoSelect.onchange = () => nguoiGiaoSelect.classList.toggle('placeholder-active', !nguoiGiaoSelect.value);
 
   const dropZone = document.getElementById('drop-zone');
   const fileInput = document.getElementById('file-input');
@@ -444,6 +447,7 @@ async function renderCreateForm() {
         attachments: state.pendingAttachments,
       });
       form.reset();
+      nguoiGiaoSelect.classList.add('placeholder-active');
       state.pendingAttachments = [];
       fileStatus.textContent = '';
       renderAttachmentList();
