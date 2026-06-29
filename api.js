@@ -12,7 +12,8 @@ const uploads = require('./uploads');
 
 const { COLS, STATUS } = config;
 const TASK_TABLE = config.TABLE.TASK;
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FILE_SIZE } });
 
 const router = express.Router();
 
@@ -341,7 +342,19 @@ router.post('/tasks/:id/complete', async (req, res) => {
 // Trả về 1 link thật (https://.../uploads/xxxx.ext) — bấm mở được, gắn được
 // thẳng vào tin nhắn Feishu DM, không còn giới hạn loại file như khi đẩy qua
 // vùng "import" của Feishu Drive (chỉ nhận docx/xlsx/pdf...).
-router.post('/uploads', upload.single('file'), async (req, res) => {
+// Bọc multer thủ công thay vì truyền trực tiếp làm middleware — multer ném lỗi
+// (vd file quá lớn) trước khi vào route handler, Express mặc định trả về trang
+// HTML lỗi chứ không phải JSON, làm frontend parse JSON bị crash.
+router.post('/uploads', (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: `File quá lớn (tối đa ${MAX_FILE_SIZE / 1024 / 1024}MB)` });
+    }
+    console.error('upload (multer) lỗi:', err.message);
+    res.status(400).json({ error: 'Tải file lên thất bại' });
+  });
+}, async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Thiếu file' });
     const filename = uploads.saveBuffer(req.file.buffer, req.file.originalname);

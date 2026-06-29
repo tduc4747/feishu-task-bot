@@ -11,6 +11,9 @@ const STATUS_DOT = {
   [STATUS.CHO_GAN]: 'warn', [STATUS.DANG_CHO]: 'idle', [STATUS.DANG_LAM]: 'warn',
   [STATUS.CHO_CHECK]: 'warn', [STATUS.HOAN_THANH]: 'ok',
 };
+// Phải khớp với MAX_FILE_SIZE ở api.js (giới hạn dung lượng do multer chặn).
+const MAX_ATTACHMENTS = 5;
+const MAX_ATTACHMENT_MB = 50;
 
 const mainEl = document.getElementById('main');
 const navEl = document.getElementById('nav');
@@ -508,7 +511,7 @@ async function renderCreateForm() {
       <label>Deadline *</label>
       <input type="date" name="deadline" required />
 
-      <label>File gốc (không bắt buộc)</label>
+      <label>File gốc (không bắt buộc, tối đa ${MAX_ATTACHMENTS} file, mỗi file ≤ ${MAX_ATTACHMENT_MB}MB)</label>
       <div class="drop-zone" id="drop-zone">${icon('upload', 18)}<div>Dán hoặc kéo ảnh/tệp vào đây, hoặc bấm để chọn file (chọn được nhiều file)</div></div>
       <input type="file" id="file-input" multiple style="display:none" />
       <div class="hint" id="file-status"></div>
@@ -538,8 +541,14 @@ async function renderCreateForm() {
   updateCounter();
 
   async function handleFiles(fileList) {
-    const files = [...(fileList || [])].filter(Boolean);
+    let files = [...(fileList || [])].filter(Boolean);
     if (files.length === 0) return;
+    const remaining = MAX_ATTACHMENTS - state.pendingAttachments.length;
+    if (files.length > remaining) {
+      files = files.slice(0, Math.max(remaining, 0));
+      toast(`Chỉ được đính kèm tối đa ${MAX_ATTACHMENTS} file/task, đã bỏ qua các file dư`, 'error');
+      if (files.length === 0) return;
+    }
     fileStatus.textContent = `Đang tải lên ${files.length} file...`;
     try {
       for (const file of files) {
@@ -626,7 +635,7 @@ async function renderCreateFormMedia() {
       <label>Deadline *</label>
       <input type="date" name="deadline" required />
 
-      <label>File gốc (không bắt buộc)</label>
+      <label>File gốc (không bắt buộc, tối đa ${MAX_ATTACHMENTS} file, mỗi file ≤ ${MAX_ATTACHMENT_MB}MB)</label>
       <div class="drop-zone" id="drop-zone-media">${icon('upload', 18)}<div>Dán hoặc kéo ảnh/tệp vào đây, hoặc bấm để chọn file (chọn được nhiều file)</div></div>
       <input type="file" id="file-input-media" multiple style="display:none" />
       <div class="hint" id="file-status-media"></div>
@@ -653,8 +662,14 @@ async function renderCreateFormMedia() {
   updateCounter();
 
   async function handleFiles(fileList) {
-    const files = [...(fileList || [])].filter(Boolean);
+    let files = [...(fileList || [])].filter(Boolean);
     if (files.length === 0) return;
+    const remaining = MAX_ATTACHMENTS - state.pendingAttachments.length;
+    if (files.length > remaining) {
+      files = files.slice(0, Math.max(remaining, 0));
+      toast(`Chỉ được đính kèm tối đa ${MAX_ATTACHMENTS} file/task, đã bỏ qua các file dư`, 'error');
+      if (files.length === 0) return;
+    }
     fileStatus.textContent = `Đang tải lên ${files.length} file...`;
     try {
       for (const file of files) {

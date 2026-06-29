@@ -23,6 +23,14 @@ app.post('/webhook', handleWebhook);
 app.post('/callback', handleCallback);
 app.get('/', (req, res) => res.json({ status: 'ok', message: 'Feishu Task Bot running' }));
 
+// ─── Lưới an toàn cho /api: trả JSON thay vì trang HTML mặc định của Express khi
+// có lỗi lọt qua route (vd middleware ném lỗi trước route handler) — tránh frontend
+// crash khi cố parse HTML thành JSON. Phải đặt sau apiRouter để bắt được lỗi của nó.
+app.use('/api', (err, req, res, next) => {
+  console.error('Lỗi chưa được xử lý ở /api:', err.message);
+  res.status(500).json({ error: 'Có lỗi xảy ra, vui lòng thử lại' });
+});
+
 // ─── Start ───────────────────────────────────────────────────────
 const PORT = process.env.PORT || 8080;
 
