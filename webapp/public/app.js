@@ -68,7 +68,7 @@ function attachmentsHtml(t) {
 }
 
 const TAB_ICON = {
-  create: 'send', createMedia: 'send', sent: 'file', mine: 'check', pending: 'clock', workload: 'users',
+  create: 'send', createMedia: 'send', sent: 'file', mine: 'check', pending: 'clock', workload: 'users', mediaCalendar: 'calendar',
   completed: 'check', users: 'user', templates: 'template', uploads: 'paperclip', manageAll: 'settings',
 };
 
@@ -295,6 +295,61 @@ async function renderWorkload() {
   mainEl.querySelectorAll('.card').forEach(card => {
     card.querySelector('[data-act="show-detail"]').onclick = () => {
       const m = workload.find(x => x.id === card.dataset.id);
+      openWorkloadDetailModal(m);
+    };
+  });
+}
+
+function localDateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// ─── Lịch deadline media (Sale) — xem media nào trống/dồn việc ngày nào trước khi gửi task mới ───
+async function renderMediaCalendar() {
+  const calendar = await window.Api.getMediaCalendar();
+  if (calendar.length === 0) { mainEl.innerHTML = '<div class="empty">Chưa có media nào.</div>'; return; }
+
+  const DAYS = 14;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = Array.from({ length: DAYS }, (_, i) => {
+    const d = new Date(today);
+    d.setDate(d.getDate() + i);
+    return d;
+  });
+  const todayKey = localDateKey(today);
+
+  mainEl.innerHTML = `
+    <div class="hint" style="margin-bottom:12px;">Số task tới hạn mỗi ngày của từng media trong ${DAYS} ngày tới — ô trống là ngày media chưa có task đến hạn, ưu tiên gửi task mới cho người trống nhiều ngày. Bấm tên để xem chi tiết task đang xử lý.</div>
+    ${grid(calendar.map(m => {
+      const counts = {};
+      for (const t of m.tasks) {
+        if (!t.deadline) continue;
+        const key = localDateKey(new Date(t.deadline));
+        counts[key] = (counts[key] || 0) + 1;
+      }
+      const cellsHtml = days.map(d => {
+        const key = localDateKey(d);
+        const count = counts[key] || 0;
+        const busyStyle = 'background:var(--accent-soft); color:var(--accent); font-weight:600;';
+        const freeStyle = 'background:var(--bg); color:var(--text-muted); border:1px solid var(--border);';
+        const todayOutline = key === todayKey ? 'outline:1px solid var(--accent); outline-offset:-1px;' : '';
+        return `<div title="${d.getDate()}/${d.getMonth() + 1}: ${count} task đến hạn" style="flex:1 0 0; min-width:34px; text-align:center; padding:4px 2px; border-radius:6px; font-size:11px; ${count ? busyStyle : freeStyle} ${todayOutline}">
+          <div>${d.getDate()}/${d.getMonth() + 1}</div>
+          <div>${count || '–'}</div>
+        </div>`;
+      }).join('');
+      return `
+        <div class="card" data-id="${m.id}">
+          <h3 class="clickable" data-act="show-detail">${m.name}</h3>
+          <div class="meta">${m.tasks.length} task đang xử lý</div>
+          <div style="display:flex; gap:2px; margin-top:8px; overflow-x:auto;">${cellsHtml}</div>
+        </div>`;
+    }).join(''))}`;
+
+  mainEl.querySelectorAll('.card[data-id]').forEach(card => {
+    card.querySelector('[data-act="show-detail"]').onclick = () => {
+      const m = calendar.find(x => x.id === card.dataset.id);
       openWorkloadDetailModal(m);
     };
   });
@@ -996,6 +1051,7 @@ function render() {
   const tabs = [];
   if (roles.includes('sale') || roles.includes('admin')) tabs.push({ key: 'create', label: 'Gửi task mới' });
   if (roles.includes('sale') || roles.includes('admin')) tabs.push({ key: 'sent', label: 'Task đã gửi' });
+  if (roles.includes('sale') || roles.includes('admin')) tabs.push({ key: 'mediaCalendar', label: 'Lịch Media' });
   if (roles.includes('media') || roles.includes('admin')) tabs.push({ key: 'mine', label: 'Task của tôi' });
   if (roles.includes('media')) tabs.push({ key: 'createMedia', label: 'Gửi task (Sale TQ)' });
   if (roles.includes('admin')) {
@@ -1015,7 +1071,7 @@ function render() {
 
   const renderers = {
     create: renderCreateForm, createMedia: renderCreateFormMedia, sent: renderSentTasks, mine: renderMyTasks, pending: renderPendingTasks,
-    workload: renderWorkload, completed: renderCompleted, manageAll: renderManageAll, users: renderUsers,
+    workload: renderWorkload, mediaCalendar: renderMediaCalendar, completed: renderCompleted, manageAll: renderManageAll, users: renderUsers,
     templates: renderTemplates, uploads: renderUploads,
   };
   const renderTab = renderers[state.tab] || (() => { mainEl.innerHTML = '<div class="empty">Không có quyền truy cập.</div>'; });

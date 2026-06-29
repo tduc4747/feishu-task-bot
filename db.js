@@ -366,6 +366,29 @@ async function getWorkload() {
   return Object.values(workload);
 }
 
+// ─── Deadline của task đang xử lý theo từng media — cho Sale xem trước khi gửi
+// task mới, để biết người nào đang trống/dồn việc vào ngày nào (tab "Lịch Media") ───
+async function getMediaCalendar() {
+  const members = await getMediaMembers();
+  const activeStatuses = [STATUS.DANG_CHO, STATUS.DANG_LAM, STATUS.CHO_CHECK];
+
+  const res = await pool.query(
+    `SELECT nguoi_thuc_hien_id AS id, deadline, status
+     FROM tasks
+     WHERE nguoi_thuc_hien_id IS NOT NULL AND status = ANY($1)`,
+    [activeStatuses]
+  );
+
+  const byMedia = {};
+  for (const m of members) byMedia[m.id] = { id: m.id, name: m.name, tasks: [] };
+  for (const row of res.rows) {
+    if (!byMedia[row.id]) continue;
+    byMedia[row.id].tasks.push({ deadline: row.deadline ? Number(row.deadline) : null, status: row.status });
+  }
+
+  return Object.values(byMedia);
+}
+
 // Khoá nội bộ dùng với updateRecord() cho field không thuộc Bitable (không sync ra ngoài)
 const INTERNAL_FIELDS = { COMPLETED_AT: '_completed_at' };
 
@@ -375,6 +398,6 @@ module.exports = {
   updateRecord, createTask, deleteTask,
   addAttachments, deleteAttachmentsByUrls, getAllAttachments,
   rowToRecord, withAttachments, setAttachmentBitableToken,
-  upsertUser, getUserRole, getUserInfo, userExists, getMediaMembers, getAdminIds, getWorkload, getTeamMembers,
+  upsertUser, getUserRole, getUserInfo, userExists, getMediaMembers, getAdminIds, getWorkload, getMediaCalendar, getTeamMembers,
   getAllUsers, deleteUser,
 };

@@ -63,6 +63,7 @@ window.Api = {
   getSentTasks: () => request('/api/tasks/sent'),
   getPendingTasks: () => request('/api/tasks/pending'),
   getWorkload: () => request('/api/tasks/workload'),
+  getMediaCalendar: () => request('/api/tasks/media-calendar'),
   getAllTasksAdmin: () => request('/api/tasks/all'),
   updateTaskAdmin: (id, body) => request(`/api/tasks/${id}/admin`, { method: 'PATCH', body }),
   getTasksByMedia: (id) => request(`/api/tasks/by-media/${id}`),

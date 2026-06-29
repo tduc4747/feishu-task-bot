@@ -66,12 +66,18 @@ router.get('/tasks/workload', auth.requireRole('admin'), async (req, res) => {
   res.json(await db.getWorkload());
 });
 
+// ─── Deadline task đang xử lý theo từng media (tab "Lịch Media") — cho Sale xem
+// trước khi gửi task mới, để biết người nào đang trống/dồn việc ngày nào ───
+router.get('/tasks/media-calendar', auth.requireRole('sale', 'admin'), async (req, res) => {
+  res.json(await db.getMediaCalendar());
+});
+
 // ─── Toàn bộ task trong hệ thống, mọi trạng thái/người (tab "Quản lý tổng") ───
 router.get('/tasks/all', auth.requireRole('admin'), async (req, res) => {
   res.json(await db.getAllTasks());
 });
 
-router.get('/tasks/by-media/:id', auth.requireRole('admin'), async (req, res) => {
+router.get('/tasks/by-media/:id', auth.requireRole('sale', 'admin'), async (req, res) => {
   res.json(await db.getMyTasks(req.params.id));
 });
 
