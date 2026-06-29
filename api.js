@@ -54,7 +54,7 @@ router.get('/tasks/mine', auth.requireRole('media', 'admin'), async (req, res) =
   res.json(await db.getMyTasks(req.openId));
 });
 
-router.get('/tasks/sent', auth.requireRole('sale'), async (req, res) => {
+router.get('/tasks/sent', auth.requireRole('sale', 'admin'), async (req, res) => {
   res.json(await db.getTasksBySale(req.openId));
 });
 

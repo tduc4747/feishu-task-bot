@@ -1018,7 +1018,12 @@ function render() {
     workload: renderWorkload, completed: renderCompleted, manageAll: renderManageAll, users: renderUsers,
     templates: renderTemplates, uploads: renderUploads,
   };
-  (renderers[state.tab] || (() => { mainEl.innerHTML = '<div class="empty">Không có quyền truy cập.</div>'; }))();
+  const renderTab = renderers[state.tab] || (() => { mainEl.innerHTML = '<div class="empty">Không có quyền truy cập.</div>'; });
+  // Nếu renderTab lỗi (vd 403 do thiếu role ở backend), báo lỗi rõ ràng thay vì im lặng
+  // giữ nguyên nội dung tab trước đó trên màn hình — dễ phát hiện bug hơn.
+  Promise.resolve(renderTab()).catch(err => {
+    mainEl.innerHTML = `<div class="error">Lỗi: ${err.message}</div>`;
+  });
 }
 
 // ─── Header: profile chip + modal hồ sơ + welcome modal mỗi lần mở app ───
