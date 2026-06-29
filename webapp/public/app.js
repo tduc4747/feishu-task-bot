@@ -751,6 +751,7 @@ async function renderUsers() {
     <div class="actions" style="margin-bottom:12px;">
       <button class="btn-primary" data-act="add-user">${icon('plus', 15)}Thêm người</button>
       <button class="btn-secondary" data-act="sync-contacts">${icon('users', 15)}Đồng bộ từ danh bạ Feishu</button>
+      <button class="btn-secondary" data-act="sync-bitable-full">${icon('check', 15)}Đồng bộ lại toàn bộ Bitable</button>
     </div>
     ${grid(users.map(u => `
       <div class="card" data-id="${u.id}">
@@ -763,6 +764,17 @@ async function renderUsers() {
 
   document.querySelector('[data-act="add-user"]').onclick = () => openUserModal(null, renderUsers);
   document.querySelector('[data-act="sync-contacts"]').onclick = () => openContactSyncModal(renderUsers);
+  document.querySelector('[data-act="sync-bitable-full"]').onclick = async (e) => {
+    e.target.disabled = true;
+    try {
+      const { synced } = await window.Api.syncBitableFull();
+      toast(`Đã đồng bộ lại ${synced} task lên Bitable`, 'success');
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      e.target.disabled = false;
+    }
+  };
   mainEl.querySelectorAll('.card[data-id]').forEach(card => {
     const id = card.dataset.id;
     card.querySelector('[data-act="edit-user"]').onclick = () => openUserModal(users.find(x => x.id === id), renderUsers);

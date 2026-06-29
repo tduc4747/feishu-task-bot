@@ -1,4 +1,5 @@
 const axios = require('axios');
+const FormData = require('form-data');
 const { getTenantToken } = require('./helpers');
 const config = require('./config');
 
@@ -6,12 +7,50 @@ const BITABLE_APP_TOKEN = process.env.BITABLE_APP_TOKEN;
 const TASK_TABLE = config.TABLE.TASK;
 const { COLS } = config;
 
+// ─── Upload 1 file đính kèm lên Bitable, trả về file_token để ghi vào field Attachment ───
+// Bitable không nhận URL cho field Attachment — phải tải file thật lên rồi tham chiếu bằng file_token.
+// Cache lại trong DB (bitable_file_token) để không phải upload lại mỗi lần đồng bộ.
+async function uploadAttachmentToBitable(token, taskId, attachment) {
+  if (attachment.bitableFileToken) return attachment.bitableFileToken;
+
+  const fileRes = await axios.get(attachment.url, { responseType: 'arraybuffer' });
+  const buffer = Buffer.from(fileRes.data);
+
+  const form = new FormData();
+  form.append('file_name', attachment.name || 'file');
+  form.append('parent_type', 'bitable_file');
+  form.append('parent_node', BITABLE_APP_TOKEN);
+  form.append('size', String(buffer.length));
+  form.append('file', buffer, { filename: attachment.name || 'file' });
+
+  const res = await axios.post('https://open.feishu.cn/open-apis/drive/v1/medias/upload_all', form, {
+    headers: { Authorization: `Bearer ${token}`, ...form.getHeaders() },
+  });
+  const fileToken = res.data.data?.file_token;
+  if (fileToken) {
+    const db = require('./db');
+    await db.setAttachmentBitableToken(taskId, attachment.url, fileToken);
+  }
+  return fileToken;
+}
+
 // ─── Đồng bộ 1 task từ Postgres lên Bitable (chạy nền, không block flow chính) ───
 // Lỗi ở đây chỉ log, không throw — Bitable giờ chỉ là bản sao để xem, không phải nguồn sự thật.
 // Tự retry 1 lần nếu thất bại (token vừa hết hạn, network blip...) trước khi bỏ qua.
 async function syncTaskToBitable(task, isRetry = false) {
   try {
     const token = await getTenantToken();
+
+    const fileTokens = [];
+    for (const a of task.attachments || []) {
+      try {
+        const fileToken = await uploadAttachmentToBitable(token, task.record_id, a);
+        if (fileToken) fileTokens.push({ file_token: fileToken });
+      } catch (err) {
+        console.error('upload file đính kèm lên Bitable lỗi (bỏ qua file này):', err.response?.data || err.message);
+      }
+    }
+
     const fields = {
       [COLS.TASK_NAME]: task.fields[COLS.TASK_NAME],
       [COLS.SKU]: task.fields[COLS.SKU],
@@ -20,6 +59,9 @@ async function syncTaskToBitable(task, isRetry = false) {
       [COLS.NGUOI_GIAO]: task.fields[COLS.NGUOI_GIAO]?.map(u => ({ id: u.id })) || [],
       [COLS.NGUOI_THUC_HIEN]: task.fields[COLS.NGUOI_THUC_HIEN]?.map(u => ({ id: u.id })) || [],
       [COLS.DEADLINE]: task.fields[COLS.DEADLINE],
+      [COLS.NGAY_GIAO]: task.created_at ? new Date(task.created_at).getTime() : null,
+      [COLS.NGAY_HOAN_THANH]: task.completed_at ? new Date(task.completed_at).getTime() : null,
+      [COLS.FILE_GOC]: fileTokens,
     };
 
     let shouldCreate = !task.bitable_record_id;
@@ -59,26 +101,21 @@ async function syncTaskToBitable(task, isRetry = false) {
   }
 }
 
-// ─── Đồng bộ toàn bộ task đang hoạt động lên Bitable (gọi định kỳ từ scheduler) ───
-async function syncAllTasksToBitable() {
+// ─── Đồng bộ task lên Bitable (gọi định kỳ từ scheduler) ───
+// full=true: đồng bộ TẤT CẢ task, không phụ thuộc updated_at (dùng khi cần đối soát lại toàn bộ,
+// ví dụ sau khi sửa sai cấu hình Bitable). full=false (mặc định): chỉ đồng bộ task thay đổi trong 24h.
+async function syncAllTasksToBitable({ full = false } = {}) {
   const db = require('./db');
-  const res = await db.pool.query(`SELECT *, id AS record_id FROM tasks WHERE updated_at > now() - interval '1 day'`);
-  for (const row of res.rows) {
-    const task = {
-      record_id: row.id,
-      bitable_record_id: row.bitable_record_id,
-      fields: {
-        [COLS.TASK_NAME]: row.task_name,
-        [COLS.SKU]: row.sku,
-        [COLS.MO_TA_CHI_TIET]: row.mo_ta_chi_tiet,
-        [COLS.TRANG_THAI]: row.status,
-        [COLS.NGUOI_GIAO]: row.nguoi_giao_id ? [{ id: row.nguoi_giao_id, name: row.nguoi_giao_name }] : [],
-        [COLS.NGUOI_THUC_HIEN]: row.nguoi_thuc_hien_id ? [{ id: row.nguoi_thuc_hien_id, name: row.nguoi_thuc_hien_name }] : [],
-        [COLS.DEADLINE]: row.deadline ? Number(row.deadline) : null,
-      },
-    };
+  const res = await db.pool.query(
+    full
+      ? 'SELECT *, id AS record_id FROM tasks'
+      : `SELECT *, id AS record_id FROM tasks WHERE updated_at > now() - interval '1 day'`
+  );
+  const tasks = await db.withAttachments(res.rows.map(db.rowToRecord));
+  for (const task of tasks) {
     await syncTaskToBitable(task);
   }
+  return tasks.length;
 }
 
 // ─── Sync nhanh: sau 10s không có thao tác nào nữa thì chạy đồng bộ toàn bộ ───

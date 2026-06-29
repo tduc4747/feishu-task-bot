@@ -8,6 +8,9 @@ module.exports = {
     NGUOI_GIAO:       'Người giao',
     NGUOI_THUC_HIEN:  'Người thực hiện',
     DEADLINE:         'Deadline',
+    NGAY_GIAO:        'Ngày giao',
+    NGAY_HOAN_THANH:  'Ngày hoàn thành',
+    FILE_GOC:         'File gốc',
   },
 
   // ─── Giá trị trạng thái ─────────────────────────

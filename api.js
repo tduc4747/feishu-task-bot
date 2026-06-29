@@ -346,6 +346,18 @@ router.post('/uploads', upload.single('file'), async (req, res) => {
   }
 });
 
+// ─── Đối soát lại toàn bộ task lên Bitable (admin) — dùng khi nghi ngờ lệch dữ liệu, ───
+// vd sau khi sửa sai BITABLE_APP_TOKEN/TABLE_ID, không phụ thuộc cửa sổ 24h như sync định kỳ.
+router.post('/admin/sync-bitable-full', auth.requireRole('admin'), async (req, res) => {
+  try {
+    const synced = await require('./bitable').syncAllTasksToBitable({ full: true });
+    res.json({ synced });
+  } catch (err) {
+    console.error('POST /admin/sync-bitable-full lỗi:', err.message);
+    res.status(500).json({ error: 'Đồng bộ lại Bitable thất bại' });
+  }
+});
+
 // ─── Quản lý file đã lưu (admin) — gom theo task để dễ dọn dẹp định kỳ ───
 router.get('/uploads', auth.requireRole('admin'), async (req, res) => {
   const files = uploads.listFiles();

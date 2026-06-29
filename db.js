@@ -64,6 +64,12 @@ async function init() {
     CREATE INDEX IF NOT EXISTS idx_task_attachments_task ON task_attachments(task_id);
   `);
 
+  // Cache file_token sau khi upload file đính kèm lên Bitable — tránh upload lại
+  // mỗi lần đồng bộ (Bitable không cho ghi field Attachment bằng URL, phải upload thật).
+  await pool.query(`
+    ALTER TABLE task_attachments ADD COLUMN IF NOT EXISTS bitable_file_token TEXT;
+  `);
+
   // Bỏ ràng buộc khoá ngoại cũ nếu bảng đã được tạo từ lần deploy trước
   await pool.query(`
     ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_nguoi_giao_id_fkey;
@@ -118,14 +124,22 @@ async function withAttachments(tasks) {
   if (tasks.length === 0) return tasks;
   const ids = tasks.map(t => Number(t.record_id));
   const res = await pool.query(
-    'SELECT task_id, file_url, file_name FROM task_attachments WHERE task_id = ANY($1) ORDER BY created_at',
+    'SELECT task_id, file_url, file_name, bitable_file_token FROM task_attachments WHERE task_id = ANY($1) ORDER BY created_at',
     [ids]
   );
   const byTask = {};
   for (const row of res.rows) {
-    (byTask[row.task_id] ||= []).push({ url: row.file_url, name: row.file_name });
+    (byTask[row.task_id] ||= []).push({ url: row.file_url, name: row.file_name, bitableFileToken: row.bitable_file_token });
   }
   return tasks.map(t => ({ ...t, attachments: byTask[Number(t.record_id)] || [] }));
+}
+
+// ─── Lưu lại file_token sau khi upload 1 file đính kèm lên Bitable (cache, tránh upload lại) ───
+async function setAttachmentBitableToken(taskId, fileUrl, token) {
+  await pool.query(
+    'UPDATE task_attachments SET bitable_file_token = $1 WHERE task_id = $2 AND file_url = $3',
+    [token, taskId, fileUrl]
+  );
 }
 
 // ─── Task queries ────────────────────────────────────────────────
@@ -360,6 +374,7 @@ module.exports = {
   getAllTasks, getRecord, getMyTasks, getTasksBySale, getPendingTasks, getCompletedTasks,
   updateRecord, createTask, deleteTask,
   addAttachments, deleteAttachmentsByUrls, getAllAttachments,
+  rowToRecord, withAttachments, setAttachmentBitableToken,
   upsertUser, getUserRole, getUserInfo, userExists, getMediaMembers, getAdminIds, getWorkload, getTeamMembers,
   getAllUsers, deleteUser,
 };
