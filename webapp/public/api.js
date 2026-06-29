@@ -19,7 +19,10 @@ async function request(path, { method = 'GET', body } = {}) {
 
 function redirectToFeishuLogin() {
   const redirectUri = encodeURIComponent(window.location.origin + window.location.pathname);
-  window.location.href = `https://open.feishu.cn/open-apis/authen/v1/index?app_id=${FEISHU_APP_ID}&redirect_uri=${redirectUri}`;
+  // Feishu trả lại "state" nguyên vẹn sau redirect — dùng nó để giữ query string gốc
+  // (ví dụ ?embed=1 khi mở từ "+" menu shortcut), vì redirect_uri không được giữ query.
+  const state = encodeURIComponent(window.location.search.replace(/^\?/, ''));
+  window.location.href = `https://open.feishu.cn/open-apis/authen/v1/index?app_id=${FEISHU_APP_ID}&redirect_uri=${redirectUri}&state=${state}`;
 }
 
 async function loginWithCodeFromUrl() {
@@ -30,7 +33,8 @@ async function loginWithCodeFromUrl() {
   const data = await request('/api/auth/login', { method: 'POST', body: { code } });
   sessionToken = data.token;
   localStorage.setItem('sessionToken', sessionToken);
-  window.history.replaceState({}, '', window.location.pathname);
+  const restoredSearch = params.get('state') ? `?${decodeURIComponent(params.get('state'))}` : '';
+  window.history.replaceState({}, '', window.location.pathname + restoredSearch);
   return data;
 }
 

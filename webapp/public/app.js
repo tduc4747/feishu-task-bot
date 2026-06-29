@@ -969,7 +969,18 @@ async function renderUploads() {
   };
 }
 
+// Mở từ "+" menu shortcut trong chat Feishu (panel nhỏ): chỉ hiện đúng 1 form gửi
+// task, không có thanh tab, để gọn cho không gian hẹp của panel "+".
+function renderEmbedCreate() {
+  const roles = state.roles;
+  navEl.style.display = 'none';
+  if (roles.includes('sale') || roles.includes('admin')) { renderCreateForm(); return; }
+  if (roles.includes('media')) { renderCreateFormMedia(); return; }
+  mainEl.innerHTML = '<div class="empty">Bạn không có quyền gửi task.</div>';
+}
+
 function render() {
+  if (state.embed) { renderEmbedCreate(); return; }
   const roles = state.roles;
   const tabs = [];
   if (roles.includes('sale') || roles.includes('admin')) tabs.push({ key: 'create', label: 'Gửi task mới' });
@@ -1038,6 +1049,9 @@ function showWelcomeModal(me) {
 (async function init() {
   try {
     await window.Api.ensureLoggedIn();
+    // Đọc sau khi ensureLoggedIn xong (không phải trước): nếu vừa đăng nhập lần đầu,
+    // query string gốc (?embed=1) chỉ được khôi phục vào URL sau khi xử lý code OAuth.
+    state.embed = new URLSearchParams(window.location.search).get('embed') === '1';
     const me = await window.Api.getMe();
     if (me.roles.length === 0) {
       mainEl.innerHTML = '<div class="error">Bạn chưa được thêm vào hệ thống. Vui lòng liên hệ admin.</div>';
@@ -1046,7 +1060,7 @@ function showWelcomeModal(me) {
     state.roles = me.roles;
     setupProfileChip(me);
     render();
-    showWelcomeModal(me);
+    if (!state.embed) showWelcomeModal(me);
   } catch (err) {
     if (err.message !== 'redirecting') {
       mainEl.innerHTML = `<div class="error">Lỗi: ${err.message}</div>`;
