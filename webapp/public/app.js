@@ -969,13 +969,12 @@ async function renderUploads() {
   };
 }
 
-// Mở từ "+" menu shortcut trong chat Feishu (panel nhỏ): chỉ hiện đúng 1 form gửi
-// task, không có thanh tab, để gọn cho không gian hẹp của panel "+".
+// Mở từ "+" menu shortcut trong chat Feishu (panel nhỏ): chỉ hiện đúng form
+// "Gửi task mới" của Sale, không có thanh tab, để gọn cho không gian hẹp của panel "+".
 function renderEmbedCreate() {
   const roles = state.roles;
   navEl.style.display = 'none';
   if (roles.includes('sale') || roles.includes('admin')) { renderCreateForm(); return; }
-  if (roles.includes('media')) { renderCreateFormMedia(); return; }
   mainEl.innerHTML = '<div class="empty">Bạn không có quyền gửi task.</div>';
 }
 
