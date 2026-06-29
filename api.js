@@ -345,7 +345,8 @@ router.post('/uploads/delete-batch', auth.requireRole('admin'), async (req, res)
 });
 
 // ─── Quản lý người (admin) ───────────────────────────────────────────
-const VALID_ROLES = ['admin', 'sale', 'media'];
+// sale_tq: Sale Trung Quốc, ngoài tổ chức — không có Open ID Feishu, không truy cập app, chỉ để hiện tên ở ô "Người giao".
+const VALID_ROLES = ['admin', 'sale', 'sale_tq', 'media'];
 
 router.get('/users', auth.requireRole('admin'), async (req, res) => {
   res.json(await db.getAllUsers());
@@ -367,12 +368,17 @@ router.get('/contacts/sync', auth.requireRole('admin'), async (req, res) => {
 
 router.post('/users', auth.requireRole('admin'), async (req, res) => {
   try {
-    const { openId, name, roles } = req.body;
-    if (!openId || !name || !Array.isArray(roles) || !roles.length) {
-      return res.status(400).json({ error: 'Thiếu openId/name/roles' });
+    let { openId, name, roles } = req.body;
+    if (!name || !Array.isArray(roles) || !roles.length) {
+      return res.status(400).json({ error: 'Thiếu name/roles' });
     }
     if (roles.some(r => !VALID_ROLES.includes(r))) {
       return res.status(400).json({ error: 'Vị trí không hợp lệ' });
+    }
+    const isTqOnly = roles.every(r => r === 'sale_tq');
+    if (!openId) {
+      if (!isTqOnly) return res.status(400).json({ error: 'Thiếu openId' });
+      openId = `tq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     }
     if (await db.userExists(openId)) {
       return res.status(400).json({ error: 'Open ID này đã tồn tại' });

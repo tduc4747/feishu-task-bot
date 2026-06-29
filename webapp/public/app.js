@@ -24,8 +24,8 @@ function fmtDate(ms) {
 function userName(val) { return val?.[0]?.name || 'N/A'; }
 function esc(s) { return String(s ?? '').replace(/"/g, '&quot;'); }
 
-const ROLE_LABEL = { admin: 'ADMIN', sale: 'SALE', media: 'MEDIA' };
-const ROLE_RANK = { admin: 3, sale: 2, media: 1 };
+const ROLE_LABEL = { admin: 'ADMIN', sale: 'SALE', sale_tq: 'SALE TQ', media: 'MEDIA' };
+const ROLE_RANK = { admin: 4, sale: 3, sale_tq: 2, media: 1 };
 function highestRoleLabel(roles) {
   const top = [...roles].sort((a, b) => (ROLE_RANK[b] || 0) - (ROLE_RANK[a] || 0))[0];
   return ROLE_LABEL[top] || '';
@@ -35,6 +35,18 @@ function initials(name) {
   const paren = (name || '').match(/\(([^)]+)\)/)?.[1];
   const source = (paren || name || '?').trim();
   return source[0]?.toUpperCase() || '?';
+}
+
+// Sale VN xếp trước, Sale TQ xếp sau, mỗi nhóm sort A-Z theo tên.
+function sortSaleMembers(members) {
+  return members
+    .filter(m => (m.roles || []).some(r => r === 'sale' || r === 'sale_tq'))
+    .sort((a, b) => {
+      const aTQ = (a.roles || []).includes('sale_tq') ? 1 : 0;
+      const bTQ = (b.roles || []).includes('sale_tq') ? 1 : 0;
+      if (aTQ !== bTQ) return aTQ - bTQ;
+      return a.name.localeCompare(b.name);
+    });
 }
 
 function grid(html) { return `<div class="grid">${html}</div>`; }
@@ -363,7 +375,7 @@ async function renderCompleted() {
   const isAdmin = state.roles.includes('admin');
 
   const senderOptionsHtml = isAdmin
-    ? (await window.Api.getTeamMembers()).filter(m => (m.roles || []).includes('sale'))
+    ? sortSaleMembers(await window.Api.getTeamMembers())
         .map(m => `<option value="${m.id}" ${state.completedFilters.senderId === m.id ? 'selected' : ''}>${m.name}</option>`).join('')
     : '';
 
@@ -419,7 +431,7 @@ function renderAttachmentList() {
 let pasteListener = null;
 
 async function renderCreateForm() {
-  const members = await window.Api.getTeamMembers();
+  const members = sortSaleMembers(await window.Api.getTeamMembers());
   const options = members.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
   mainEl.innerHTML = `
     <form id="create-form">
@@ -527,7 +539,9 @@ async function renderCreateForm() {
 }
 
 // ─── Quản lý người (admin) ───────────────────────────────────────────
-const ALL_ROLES = ['admin', 'sale', 'media'];
+const ALL_ROLES = ['admin', 'sale', 'sale_tq', 'media'];
+// Sale TQ nằm ngoài tổ chức, không có Open ID Feishu và không cần truy cập app.
+function isTqOnly(roles) { return roles.length > 0 && roles.every(r => r === 'sale_tq'); }
 
 function userRolesCheckboxes(checked = []) {
   return ALL_ROLES.map(r => `
@@ -540,7 +554,7 @@ function openUserModal(u, onSaved) {
   openModal({
     title: u ? 'Sửa người dùng' : 'Thêm người',
     bodyHtml: `
-      <label>Open ID${u ? '' : ' (lấy bằng cách nhắn "hi" cho bot lần đầu)'}</label>
+      <label>Open ID${u ? '' : ' (lấy bằng cách nhắn "hi" cho bot lần đầu — bỏ trống nếu chỉ là Sale TQ)'}</label>
       <input data-f="openId" value="${u ? u.id : ''}" ${u ? 'disabled' : ''} placeholder="ou_xxxxxxxx" />
       <label>Tên đầy đủ</label>
       <input data-f="name" value="${u ? esc(u.name) : ''}" placeholder="丁皇俊英 (Dustin)" />
@@ -561,8 +575,8 @@ function openUserModal(u, onSaved) {
             await window.Api.updateUser(u.id, { name, roles });
           } else {
             const openId = panel.querySelector('[data-f="openId"]').value.trim();
-            if (!openId) { errEl.textContent = 'Cần Open ID'; return; }
-            await window.Api.createUser({ openId, name, roles });
+            if (!openId && !isTqOnly(roles)) { errEl.textContent = 'Cần Open ID'; return; }
+            await window.Api.createUser({ openId: openId || undefined, name, roles });
           }
           closeModal();
           onSaved();
