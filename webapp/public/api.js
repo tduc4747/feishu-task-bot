@@ -67,6 +67,7 @@ window.Api = {
     return request(`/api/tasks/completed${qs ? '?' + qs : ''}`);
   },
   createTask: (body) => request('/api/tasks', { method: 'POST', body }),
+  createTaskFromMedia: (body) => request('/api/tasks/from-media', { method: 'POST', body }),
   updateTask: (id, body) => request(`/api/tasks/${id}`, { method: 'PATCH', body }),
   deleteTask: (id) => request(`/api/tasks/${id}`, { method: 'DELETE' }),
   assignTask: (id, assigneeId) => request(`/api/tasks/${id}/assign`, { method: 'POST', body: { assigneeId } }),

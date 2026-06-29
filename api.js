@@ -131,6 +131,47 @@ router.post('/tasks', auth.requireRole('sale', 'admin'), async (req, res) => {
   }
 });
 
+// ─── Tạo task mới (Media, thay mặt Sale TQ — Sale TQ không truy cập được app này) ───
+// Khác /tasks (Sale): nguoiGiaoId bắt buộc và phải là Sale TQ (không cho chọn chính mình),
+// task được gán người thực hiện luôn (mặc định là chính người tạo) để khỏi qua bước "Task chờ gán".
+router.post('/tasks/from-media', auth.requireRole('media'), async (req, res) => {
+  try {
+    const { taskName, sku, moTaChiTiet, deadline, attachments, nguoiGiaoId, assigneeId } = req.body;
+    if (!taskName || !sku || !deadline) {
+      return res.status(400).json({ error: 'Thiếu thông tin bắt buộc' });
+    }
+    if (taskName.length > 50) {
+      return res.status(400).json({ error: 'Yêu cầu không được vượt quá 50 ký tự' });
+    }
+    if (!nguoiGiaoId) {
+      return res.status(400).json({ error: 'Thiếu người giao (Sale TQ)' });
+    }
+
+    const members = await db.getTeamMembers();
+    const picked = members.find(m => m.id === nguoiGiaoId);
+    if (!picked || !(picked.roles || []).includes('sale_tq')) {
+      return res.status(400).json({ error: 'Người giao phải là Sale TQ' });
+    }
+
+    const task = await db.createTask({
+      taskName, sku, moTaChiTiet, deadline,
+      nguoiGiaoId: picked.id, nguoiGiaoName: picked.name,
+      attachments: Array.isArray(attachments) ? attachments : [],
+    });
+
+    const { task: assignedTask } = await taskActions.assignTask({
+      recordId: task.record_id,
+      assigneeId: assigneeId || req.openId,
+      actorId: req.openId,
+    });
+
+    res.status(201).json(assignedTask);
+  } catch (err) {
+    console.error('POST /tasks/from-media lỗi:', err.message);
+    res.status(500).json({ error: err.message || 'Tạo task thất bại' });
+  }
+});
+
 // ─── Chỉ admin hoặc đúng người đã giao task mới được sửa/xoá task đó ───
 async function assertOwnsTask(req, res) {
   const task = await db.getRecord(TASK_TABLE, req.params.id);

@@ -68,7 +68,7 @@ function attachmentsHtml(t) {
 }
 
 const TAB_ICON = {
-  create: 'send', sent: 'file', mine: 'check', pending: 'clock', workload: 'users',
+  create: 'send', createMedia: 'send', sent: 'file', mine: 'check', pending: 'clock', workload: 'users',
   completed: 'check', users: 'user', templates: 'template', uploads: 'paperclip', manageAll: 'settings',
 };
 
@@ -538,6 +538,121 @@ async function renderCreateForm() {
   };
 }
 
+// ─── Gửi task mới (Media, thay mặt Sale TQ — Sale TQ không truy cập được app này) ───
+async function renderCreateFormMedia() {
+  const members = await window.Api.getTeamMembers();
+  const tqOptions = members.filter(m => (m.roles || []).includes('sale_tq'))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(m => `<option value="${m.id}">${m.name}</option>`).join('');
+  const mediaOptions = members.filter(m => (m.roles || []).includes('media'))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(m => `<option value="${m.id}">${m.name}</option>`).join('');
+
+  mainEl.innerHTML = `
+    <form id="create-form-media">
+      <label>Người giao (Sale TQ) *</label>
+      <select name="nguoiGiaoId" required><option value="">Chọn Sale TQ...</option>${tqOptions}</select>
+
+      <label>Người thực hiện (không bắt buộc)</label>
+      <select name="assigneeId"><option value="">Để trống nếu chính bạn là người thực hiện.</option>${mediaOptions}</select>
+
+      <label>Yêu cầu *</label>
+      <div class="input-counter-wrap">
+        <input name="taskName" id="task-name-input-media" required maxlength="50" placeholder="Ghi yêu cầu ngắn gọn (Lật hình)" />
+        <span class="char-counter" id="task-name-counter-media">0/50</span>
+      </div>
+
+      <label>Tên sản phẩm / SKU *</label>
+      <input name="sku" required placeholder="Nếu nhiều SKU thì ghi ngắn gọn (KBA-804X)" />
+
+      <label>Mô tả chi tiết (không bắt buộc)</label>
+      <textarea name="moTaChiTiet" rows="4" placeholder="Mô tả chi tiết task hoặc lưu ý khi làm task."></textarea>
+
+      <label>Deadline *</label>
+      <input type="date" name="deadline" required />
+
+      <label>File gốc (không bắt buộc)</label>
+      <div class="drop-zone" id="drop-zone-media">${icon('upload', 18)}<div>Dán hoặc kéo ảnh/tệp vào đây, hoặc bấm để chọn file (chọn được nhiều file)</div></div>
+      <input type="file" id="file-input-media" multiple style="display:none" />
+      <div class="hint" id="file-status-media"></div>
+      <div id="attachment-list" style="margin-top:6px;"></div>
+
+      <div class="error" id="form-error-media"></div>
+      <div class="actions" style="margin-top:14px;">
+        <button class="btn-primary" type="submit">${icon('send', 15)}Gửi task</button>
+      </div>
+    </form>`;
+
+  const form = document.getElementById('create-form-media');
+
+  const dropZone = document.getElementById('drop-zone-media');
+  const fileInput = document.getElementById('file-input-media');
+  const fileStatus = document.getElementById('file-status-media');
+  state.pendingAttachments = [];
+  renderAttachmentList();
+
+  const taskNameInput = document.getElementById('task-name-input-media');
+  const taskNameCounter = document.getElementById('task-name-counter-media');
+  const updateCounter = () => taskNameCounter.textContent = `${taskNameInput.value.length}/50`;
+  taskNameInput.addEventListener('input', updateCounter);
+  updateCounter();
+
+  async function handleFiles(fileList) {
+    const files = [...(fileList || [])].filter(Boolean);
+    if (files.length === 0) return;
+    fileStatus.textContent = `Đang tải lên ${files.length} file...`;
+    try {
+      for (const file of files) {
+        const { attachmentUrl } = await window.Api.uploadFile(file);
+        state.pendingAttachments.push({ url: attachmentUrl, name: file.name });
+      }
+      fileStatus.textContent = '';
+      renderAttachmentList();
+    } catch (err) {
+      fileStatus.textContent = `Tải file lỗi: ${err.message}`;
+    }
+  }
+  dropZone.onclick = () => fileInput.click();
+  fileInput.onchange = () => handleFiles(fileInput.files);
+  dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('dragover'); };
+  dropZone.ondragleave = () => dropZone.classList.remove('dragover');
+  dropZone.ondrop = (e) => { e.preventDefault(); dropZone.classList.remove('dragover'); handleFiles(e.dataTransfer.files); };
+
+  if (pasteListener) document.removeEventListener('paste', pasteListener);
+  pasteListener = (e) => {
+    const items = [...e.clipboardData.items].filter(i => i.type.startsWith('image/')).map(i => i.getAsFile());
+    if (items.length) handleFiles(items);
+  };
+  document.addEventListener('paste', pasteListener);
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const errEl = document.getElementById('form-error-media');
+    errEl.textContent = '';
+    const fd = new FormData(form);
+    const deadlineStr = fd.get('deadline');
+    try {
+      await window.Api.createTaskFromMedia({
+        taskName: fd.get('taskName'),
+        sku: fd.get('sku'),
+        moTaChiTiet: fd.get('moTaChiTiet'),
+        deadline: deadlineStr ? new Date(deadlineStr).getTime() : null,
+        nguoiGiaoId: fd.get('nguoiGiaoId'),
+        assigneeId: fd.get('assigneeId') || undefined,
+        attachments: state.pendingAttachments,
+      });
+      form.reset();
+      state.pendingAttachments = [];
+      fileStatus.textContent = '';
+      renderAttachmentList();
+      updateCounter();
+      toast('Đã gửi task!', 'success');
+    } catch (err) {
+      errEl.textContent = err.message;
+    }
+  };
+}
+
 // ─── Quản lý người (admin) ───────────────────────────────────────────
 const ALL_ROLES = ['admin', 'sale', 'sale_tq', 'media'];
 // Sale TQ nằm ngoài tổ chức, không có Open ID Feishu và không cần truy cập app.
@@ -860,6 +975,7 @@ function render() {
   if (roles.includes('sale') || roles.includes('admin')) tabs.push({ key: 'create', label: 'Gửi task mới' });
   if (roles.includes('sale') || roles.includes('admin')) tabs.push({ key: 'sent', label: 'Task đã gửi' });
   if (roles.includes('media') || roles.includes('admin')) tabs.push({ key: 'mine', label: 'Task của tôi' });
+  if (roles.includes('media')) tabs.push({ key: 'createMedia', label: 'Gửi task (Sale TQ)' });
   if (roles.includes('admin')) {
     tabs.push({ key: 'pending', label: 'Task chờ gán' });
     tabs.push({ key: 'workload', label: 'Workload' });
@@ -876,7 +992,7 @@ function render() {
   setNav(tabs);
 
   const renderers = {
-    create: renderCreateForm, sent: renderSentTasks, mine: renderMyTasks, pending: renderPendingTasks,
+    create: renderCreateForm, createMedia: renderCreateFormMedia, sent: renderSentTasks, mine: renderMyTasks, pending: renderPendingTasks,
     workload: renderWorkload, completed: renderCompleted, manageAll: renderManageAll, users: renderUsers,
     templates: renderTemplates, uploads: renderUploads,
   };
