@@ -553,7 +553,8 @@ function renderAttachmentList() {
 let pasteListener = null;
 
 async function renderCreateForm() {
-  const members = sortSaleMembers(await window.Api.getTeamMembers());
+  // Form này chỉ dành cho Sale VN gửi task — "Người giao" chỉ hiện Sale VN, Sale TQ gửi qua tab riêng (renderCreateFormMedia).
+  const members = sortSaleMembers(await window.Api.getTeamMembers()).filter(m => !(m.roles || []).includes('sale_tq'));
   const options = members.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
   mainEl.innerHTML = `
     <form id="create-form">
