@@ -307,54 +307,118 @@ function localDateKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-// ─── Lịch deadline media (Sale) — xem media nào trống/dồn việc ngày nào trước khi gửi task mới ───
+// ─── Modal: task của 1 media đang phủ qua 1 ngày cụ thể (từ ngày giao tới deadline) ───
+async function openMediaCalendarDayModal(member, dateKey) {
+  const [y, mo, da] = dateKey.split('-').map(Number);
+  const dayLabel = `${String(da).padStart(2, '0')}/${String(mo).padStart(2, '0')}/${y}`;
+  openModal({ title: `${member.name} — ${dayLabel}`, size: 'lg', bodyHtml: '<p class="modal-text">Đang tải...</p>' });
+  const tasks = await window.Api.getTasksByMedia(member.id);
+  const inRange = tasks.filter(t => {
+    if (!t.fields[COLS.DEADLINE]) return false;
+    const end = new Date(Number(t.fields[COLS.DEADLINE])); end.setHours(0, 0, 0, 0);
+    const start = t.created_at ? new Date(t.created_at) : new Date(end);
+    start.setHours(0, 0, 0, 0);
+    const day = new Date(y, mo - 1, da);
+    return day >= start && day <= end;
+  });
+  const bodyHtml = inRange.length === 0
+    ? '<p class="modal-text">Không có task nào phủ qua ngày này.</p>'
+    : grid(inRange.map(t => taskCard(t, { person: 'giao', showMota: true })).join(''));
+  openModal({ title: `${member.name} — ${dayLabel}`, size: 'lg', bodyHtml });
+}
+
+// ─── Lịch deadline media (Sale) — dạng lịch tháng, tô đậm theo số task chồng nhau
+// (từ ngày giao tới deadline) để thấy media nào đang bận thật sự, không chỉ đúng ngày hết hạn ───
+let mediaCalendarMonthOffset = 0; // 0 = tháng hiện tại, -1 = tháng trước (giới hạn xem lùi 1 tháng)
+const WEEKDAY_LABELS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+
 async function renderMediaCalendar() {
   const calendar = await window.Api.getMediaCalendar();
   if (calendar.length === 0) { mainEl.innerHTML = '<div class="empty">Chưa có media nào.</div>'; return; }
 
-  const DAYS = 14;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const days = Array.from({ length: DAYS }, (_, i) => {
-    const d = new Date(today);
+  const base = new Date(today.getFullYear(), today.getMonth() + mediaCalendarMonthOffset, 1);
+  const year = base.getFullYear();
+  const month = base.getMonth();
+  const gridStart = new Date(year, month, 1);
+  gridStart.setDate(gridStart.getDate() - gridStart.getDay());
+  const cellDates = Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(gridStart);
     d.setDate(d.getDate() + i);
     return d;
   });
   const todayKey = localDateKey(today);
+  const canGoBack = mediaCalendarMonthOffset > -1;
+  const canGoForward = mediaCalendarMonthOffset < 0;
+
+  const tierStyle = (count) => {
+    if (count >= 3) return 'background:color-mix(in srgb, var(--accent) 60%, white); color:var(--accent-contrast); font-weight:700;';
+    if (count === 2) return 'background:color-mix(in srgb, var(--accent) 35%, white); color:var(--accent); font-weight:700;';
+    if (count === 1) return 'background:color-mix(in srgb, var(--accent) 15%, white); color:var(--accent); font-weight:600;';
+    return 'color:var(--text-muted);';
+  };
+
+  const weekdayHeader = WEEKDAY_LABELS.map(w => `<div style="text-align:center; font-size:11px; color:var(--text-muted); padding:2px 0;">${w}</div>`).join('');
 
   mainEl.innerHTML = `
-    <div class="hint" style="margin-bottom:12px;">Số task tới hạn mỗi ngày của từng media trong ${DAYS} ngày tới — ô trống là ngày media chưa có task đến hạn, ưu tiên gửi task mới cho người trống nhiều ngày. Bấm tên để xem chi tiết task đang xử lý.</div>
+    <div class="hint" style="margin-bottom:12px;">Dải màu thể hiện khoảng thời gian xử lý task (từ ngày giao đến deadline) của từng media — ô càng đậm nghĩa là càng nhiều task đang chồng nhau vào ngày đó, kể cả task chưa tới hạn. Bấm số trên ô để xem danh sách task, bấm tên media để xem toàn bộ task đang xử lý.</div>
+    <div style="display:flex; align-items:center; justify-content:center; gap:12px; margin-bottom:14px;">
+      <button type="button" class="icon-btn" data-act="prev-month" ${canGoBack ? '' : 'disabled'} style="transform:rotate(90deg); ${canGoBack ? '' : 'opacity:.4; cursor:default;'}">${icon('chevron', 16)}</button>
+      <div style="font-weight:600;">Tháng ${month + 1}/${year}</div>
+      <button type="button" class="icon-btn" data-act="next-month" ${canGoForward ? '' : 'disabled'} style="transform:rotate(-90deg); ${canGoForward ? '' : 'opacity:.4; cursor:default;'}">${icon('chevron', 16)}</button>
+    </div>
     ${grid(calendar.map(m => {
-      const counts = {};
+      const load = {};
       for (const t of m.tasks) {
         if (!t.deadline) continue;
-        const key = localDateKey(new Date(t.deadline));
-        counts[key] = (counts[key] || 0) + 1;
+        const end = new Date(t.deadline); end.setHours(0, 0, 0, 0);
+        const start = t.createdAt ? new Date(t.createdAt) : new Date(end);
+        start.setHours(0, 0, 0, 0);
+        if (start > end) continue;
+        const cur = new Date(start);
+        while (cur <= end) {
+          const key = localDateKey(cur);
+          load[key] = (load[key] || 0) + 1;
+          cur.setDate(cur.getDate() + 1);
+        }
       }
-      const cellsHtml = days.map(d => {
+      const cellsHtml = cellDates.map(d => {
+        const inMonth = d.getMonth() === month;
         const key = localDateKey(d);
-        const count = counts[key] || 0;
-        const busyStyle = 'background:var(--accent-soft); color:var(--accent); font-weight:600;';
-        const freeStyle = 'background:var(--bg); color:var(--text-muted); border:1px solid var(--border);';
+        const count = load[key] || 0;
         const todayOutline = key === todayKey ? 'outline:1px solid var(--accent); outline-offset:-1px;' : '';
-        return `<div title="${d.getDate()}/${d.getMonth() + 1}: ${count} task đến hạn" style="flex:1 0 0; min-width:34px; text-align:center; padding:4px 2px; border-radius:6px; font-size:11px; ${count ? busyStyle : freeStyle} ${todayOutline}">
-          <div>${d.getDate()}/${d.getMonth() + 1}</div>
-          <div>${count || '–'}</div>
+        const clickable = inMonth && count > 0;
+        return `<div ${clickable ? `class="clickable" data-act="show-day" data-day="${key}"` : ''} style="opacity:${inMonth ? '1' : '.35'}; text-align:center; padding:5px 2px; border-radius:6px; font-size:11.5px; ${tierStyle(count)} ${todayOutline} ${clickable ? 'cursor:pointer;' : ''}">
+          <div>${d.getDate()}</div>
+          <div>${count || ''}</div>
         </div>`;
       }).join('');
       return `
         <div class="card" data-id="${m.id}">
           <h3 class="clickable" data-act="show-detail">${m.name}</h3>
           <div class="meta">${m.tasks.length} task đang xử lý</div>
-          <div style="display:flex; gap:2px; margin-top:8px; overflow-x:auto;">${cellsHtml}</div>
+          <div style="display:grid; grid-template-columns:repeat(7,1fr); gap:3px; margin-top:8px;">${weekdayHeader}${cellsHtml}</div>
         </div>`;
     }).join(''))}`;
 
+  mainEl.querySelector('[data-act="prev-month"]')?.addEventListener('click', () => {
+    if (!canGoBack) return;
+    mediaCalendarMonthOffset -= 1;
+    renderMediaCalendar();
+  });
+  mainEl.querySelector('[data-act="next-month"]')?.addEventListener('click', () => {
+    if (!canGoForward) return;
+    mediaCalendarMonthOffset += 1;
+    renderMediaCalendar();
+  });
+
   mainEl.querySelectorAll('.card[data-id]').forEach(card => {
-    card.querySelector('[data-act="show-detail"]').onclick = () => {
-      const m = calendar.find(x => x.id === card.dataset.id);
-      openWorkloadDetailModal(m);
-    };
+    const m = calendar.find(x => x.id === card.dataset.id);
+    card.querySelector('[data-act="show-detail"]').onclick = () => openWorkloadDetailModal(m);
+    card.querySelectorAll('[data-act="show-day"]').forEach(cell => {
+      cell.onclick = () => openMediaCalendarDayModal(m, cell.dataset.day);
+    });
   });
 }
 
