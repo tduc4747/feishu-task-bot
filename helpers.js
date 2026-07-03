@@ -20,8 +20,15 @@ async function getTenantToken() {
   return cachedToken;
 }
 
+// Sale TQ là user "ảo" (id tq_..., không có Feishu) — mọi tin nhắn gửi tới họ
+// bỏ qua êm, không để lỗi Feishu API làm hỏng cả flow đổi trạng thái task.
+function isFakeUser(userId) {
+  return !userId || String(userId).startsWith('tq_');
+}
+
 // ─── Gửi tin nhắn text (DM) ─────────────────────────────────────
 async function sendDM(userId, text) {
+  if (isFakeUser(userId)) return;
   const token = await getTenantToken();
   await axios.post(
     'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id',
@@ -36,6 +43,7 @@ async function sendDM(userId, text) {
 
 // ─── Gửi card (DM) ──────────────────────────────────────────────
 async function sendCard(userId, card) {
+  if (isFakeUser(userId)) return;
   const token = await getTenantToken();
   await axios.post(
     'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id',
@@ -117,4 +125,17 @@ function formatDate(val) {
   return `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`;
 }
 
-module.exports = { getTenantToken, sendDM, sendCard, sendCardToChat, updateCard, formatUser, formatText, formatDate };
+// ─── Deadline kèm cảnh báo quá hạn/hôm nay (so theo ngày giờ VN) ─────
+function formatDeadline(val) {
+  const base = formatDate(val);
+  if (base === 'N/A') return base;
+  const ts = typeof val === 'number' ? val : parseInt(val);
+  const opts = { timeZone: 'Asia/Ho_Chi_Minh' };
+  const dstr = new Date(ts).toLocaleDateString('en-CA', opts); // YYYY-MM-DD
+  const today = new Date().toLocaleDateString('en-CA', opts);
+  if (dstr < today) return `${base} 🔴 QUÁ HẠN`;
+  if (dstr === today) return `${base} ⚠️ HÔM NAY`;
+  return base;
+}
+
+module.exports = { getTenantToken, sendDM, sendCard, sendCardToChat, updateCard, formatUser, formatText, formatDate, formatDeadline };

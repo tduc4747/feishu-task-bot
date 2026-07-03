@@ -1,5 +1,6 @@
 // ─── Logic chuyển trạng thái task, dùng chung cho card chat (callback.js) và REST API (api.js) ───
-const { sendDM, formatText, formatDate } = require('./helpers');
+const { sendDM, sendCard, formatText, formatDate } = require('./helpers');
+const { cardSaleApprove } = require('./cards');
 const db = require('./db');
 const { syncTaskToBitable, scheduleQuickSync } = require('./bitable');
 const { renderMessage } = require('./messages');
@@ -83,7 +84,9 @@ async function pendingCheckTask({ recordId, userId }) {
   const task = await db.getRecord(TASK_TABLE, recordId);
   const saleId = task.fields[COLS.NGUOI_GIAO]?.[0]?.id;
   const vars = buildVars(task);
-  const saleActive = saleId && await db.userExists(saleId);
+  // Sale TQ ảo (id tq_..., không có Feishu) coi như không nhận được thông báo
+  // -> card duyệt chuyển cho chính media để tự chốt hoàn thành.
+  const saleActive = saleId && !String(saleId).startsWith('tq_') && await db.userExists(saleId);
   const notifyId = saleActive ? saleId : userId;
 
   syncTaskToBitable(task); scheduleQuickSync(); // nền, không chờ + lưới an toàn 10s sau
@@ -91,6 +94,11 @@ async function pendingCheckTask({ recordId, userId }) {
   if (saleActive && saleId !== userId) {
     await sendDM(userId, await renderMessage('task_pending_check_self', vars));
   }
+
+  // Card duyệt (nút "Hoàn thành") gửi cho sale — nếu sale không còn trong hệ thống thì
+  // gửi cho chính media để tự chốt. Gửi ở đây (không phải ở callback.js) để cả luồng
+  // webapp lẫn luồng card chat đều báo sale, trước đây luồng webapp bị sót.
+  await sendCard(notifyId, cardSaleApprove(recordId, vars.ten_task, vars.sku));
 
   return { task, taskName: vars.ten_task, sku: vars.sku, notifyId, saleActive };
 }

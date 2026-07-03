@@ -111,12 +111,116 @@ main { padding: 16px; max-width: 1100px; margin: 0 auto; }
 .card .note { margin-top: 4px; padding: 8px 10px; background: var(--bg); border-radius: 8px; font-size: 13px; color: var(--text); white-space: pre-wrap; }
 .card .detail { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 3px; }
 
-/* Trạng thái: chấm màu nhỏ, không phủ màu cả khối */
+/* Trạng thái: chấm màu nhỏ, không phủ màu cả khối — mỗi trạng thái 1 màu riêng */
 .status-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--text-muted); }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0; }
-.status-dot.warn { background: var(--warning); }
-.status-dot.ok { background: var(--success); }
-.status-dot.idle { background: #a1a1aa; }
+.status-dot.pending { background: #a1a1aa; }   /* Chờ gán */
+.status-dot.idle { background: #2563eb; }      /* Đang chờ */
+.status-dot.active { background: var(--warning); } /* Đang làm */
+.status-dot.review { background: #7c3aed; }    /* Chờ check */
+.status-dot.ok { background: var(--success); } /* Hoàn thành */
+
+/* Badge cảnh báo deadline */
+.badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; vertical-align: middle; }
+.badge-danger { background: var(--danger-soft); color: var(--danger); }
+.badge-warn { background: #fef3c7; color: var(--warning); }
+
+/* Chip lọc trạng thái (tab Quản lý tổng) */
+.chip-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { padding: 5px 10px; border: 1px solid var(--border); border-radius: 999px; cursor: pointer; font-size: 12px; color: var(--text-muted); user-select: none; white-space: nowrap; }
+.chip.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); font-weight: 600; }
+
+/* Spinner khi chuyển tab */
+.loading { display: flex; justify-content: center; padding: 56px 0; }
+.spinner { width: 26px; height: 26px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Nút trong modal "Quản trị" / "Thêm" */
+.nav-menu-item { display: flex; width: 100%; justify-content: flex-start; gap: 8px; margin-bottom: 8px; }
+.nav-menu-item.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+
+/* Badge số đỏ trên tab — việc đang chờ mình */
+.nav-badge {
+  background: var(--danger); color: #fff; font-size: 10.5px; font-weight: 700;
+  border-radius: 999px; padding: 1px 6px; min-width: 17px; text-align: center; line-height: 1.5;
+}
+
+/* Tiêu đề cụm trong danh sách (Quá hạn / Hôm nay / Sắp tới...) */
+.group-title { margin: 18px 0 8px; font-size: 13px; font-weight: 600; color: var(--text-muted); }
+.group-title:first-child { margin-top: 0; }
+
+/* Mô tả dài: cắt 2 dòng + nút Xem thêm */
+.note.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-height: 3.4em; }
+.note.clamp.expanded { -webkit-line-clamp: unset; max-height: none; }
+/* Thuộc tính hidden bị .card .meta { display:flex } đè mất — ép ẩn lại */
+.att-extra[hidden] { display: none; }
+.link-btn { border: none; background: none; color: var(--accent); font-size: 12.5px; cursor: pointer; padding: 4px 0 0; text-align: left; }
+
+/* Thumbnail ảnh đính kèm */
+.thumb-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.thumb { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); display: block; }
+
+/* ─── Tab "Hôm nay" ─── */
+.home-sec { margin-bottom: 14px; padding: 16px; }
+.home-greet { margin: 0; font-size: 17px; font-weight: 600; }
+.home-date { margin: 2px 0 12px; font-size: 13px; color: var(--text-muted); }
+.home-sec-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.home-sec-title { margin: 0; font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.home-sub-title { margin: 14px 0 6px; font-size: 12.5px; font-weight: 600; color: var(--text-muted); }
+.t-danger { color: var(--danger); font-weight: 600; }
+.t-warn { color: var(--warning); font-weight: 600; }
+
+.stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+.stat-grid-4 { grid-template-columns: repeat(4, 1fr); }
+.stat { background: var(--bg); border-radius: 8px; padding: 9px 12px; }
+.stat.clickable { cursor: pointer; }
+.stat.clickable:hover { outline: 1px solid var(--border); }
+.stat-n { font-size: 21px; font-weight: 700; line-height: 1.2; }
+.stat-l { font-size: 11.5px; color: var(--text-muted); }
+.stat-danger { background: var(--danger-soft); }
+.stat-danger .stat-n, .stat-danger .stat-l { color: var(--danger); }
+.stat-warn { background: #fef3c7; }
+.stat-warn .stat-n, .stat-warn .stat-l { color: var(--warning); }
+.stat-ok { background: #dcfce7; }
+.stat-ok .stat-n, .stat-ok .stat-l { color: var(--success); }
+
+.home-task {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
+}
+.home-task.urgent { border-left: 3px solid var(--danger); }
+.home-task.soon { border-left: 3px solid var(--warning); }
+.ht-info { flex: 1; min-width: 180px; }
+.ht-title { font-size: 13.5px; font-weight: 600; }
+.ht-sub { font-size: 12px; color: var(--text-muted); margin-top: 1px; }
+.ht-wait { font-size: 12px; color: var(--text-muted); font-style: italic; }
+.ht-row { display: flex; align-items: center; gap: 10px; padding: 7px 2px; border-top: 1px solid var(--border); font-size: 13px; }
+.ht-row-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-row-who { font-size: 12px; color: var(--text-muted); flex-shrink: 0; }
+.ht-row-dl { font-size: 12px; color: var(--text-muted); flex-shrink: 0; }
+
+.badge-new { background: var(--accent-soft); color: var(--accent); }
+
+/* ─── Bottom tab bar (mobile) ─── */
+#bottom-nav { display: none; }
+@media (max-width: 640px) {
+  nav { display: none; }
+  main { padding-bottom: 74px; }
+  #bottom-nav {
+    display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 40;
+    background: var(--surface); border-top: 1px solid var(--border);
+    padding: 4px 4px calc(4px + env(safe-area-inset-bottom));
+  }
+  #bottom-nav button {
+    flex: 1; border: none; background: none; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 6px 2px; font-size: 10.5px; color: var(--text-muted); border-radius: 8px;
+    position: relative;
+  }
+  #bottom-nav button.active { color: var(--accent); font-weight: 600; }
+  #bottom-nav button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #bottom-nav .nav-badge { position: absolute; top: 2px; right: calc(50% - 20px); }
+}
 
 /* ─── Buttons ─── */
 button { font-family: inherit; }

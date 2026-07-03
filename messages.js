@@ -167,10 +167,18 @@ async function updateTemplate(key, { title, content }) {
   return getTemplate(key);
 }
 
+// Mẫu hệ thống: "xoá" = phục hồi nội dung mặc định (không xoá được đầu mục).
+// Mẫu tuỳ chỉnh: xoá hẳn.
 async function deleteTemplate(key) {
   const res = await db.pool.query('SELECT is_system FROM message_templates WHERE key = $1', [key]);
-  if (res.rows[0]?.is_system) throw new Error('Không thể xoá mục hệ thống, chỉ có thể sửa nội dung');
+  if (res.rows[0]?.is_system) {
+    const d = DEFAULTS[key];
+    if (!d) throw new Error('Không thể xoá mục hệ thống');
+    await db.pool.query('UPDATE message_templates SET content = $1, updated_at = now() WHERE key = $2', [d.content, key]);
+    return { reset: true };
+  }
   await db.pool.query('DELETE FROM message_templates WHERE key = $1', [key]);
+  return { reset: false };
 }
 
 module.exports = {

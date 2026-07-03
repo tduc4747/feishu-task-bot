@@ -1,7 +1,7 @@
 const cron = require('node-cron');
-const { sendDM, sendCard, sendCardToChat, formatText, formatDate } = require('./helpers');
+const { sendDM, sendCard, sendCardToChat, formatText, formatDeadline } = require('./helpers');
 const { getAllTasks, getMediaMembers, getAdminIds } = require('./db');
-const { getAllSettings } = require('./settings');
+const { getAllSettings, setSettings } = require('./settings');
 const { renderMessage } = require('./messages');
 const { syncAllTasksToBitable } = require('./bitable');
 const { cardMorningMedia, cardMorningAdmin } = require('./cards');
@@ -43,7 +43,9 @@ async function sendMorningNotifications() {
 
     // ── Báo cáo cho admin: task chờ gán (đầy đủ chi tiết) + task đang xử lý (gom theo người) ──
     const pendingTasks = allTasks.filter(t => t.fields[COLS.TRANG_THAI] === STATUS.CHO_GAN);
-    const activeTasks = allTasks.filter(t => [STATUS.DANG_LAM, STATUS.CHO_CHECK].includes(t.fields[COLS.TRANG_THAI]));
+    // Gồm cả "Đang chờ" (đã gán nhưng media chưa bấm bắt đầu) — trước đây nhóm này
+    // không xuất hiện ở đâu trong báo cáo admin cả.
+    const activeTasks = allTasks.filter(t => activeStatuses.includes(t.fields[COLS.TRANG_THAI]));
 
     const grouped = {};
     for (const t of activeTasks) {
@@ -54,7 +56,7 @@ async function sendMorningNotifications() {
       grouped[key].tasks.push({
         taskName: formatText(t.fields[COLS.TASK_NAME]),
         trangThai: formatText(t.fields[COLS.TRANG_THAI]),
-        deadline: formatDate(t.fields[COLS.DEADLINE]),
+        deadline: formatDeadline(t.fields[COLS.DEADLINE]),
       });
     }
     const tasksByPerson = Object.values(grouped);
@@ -86,9 +88,8 @@ async function runBitableSync() {
 
 // ─── Khởi động scheduler ────────────────────────────────────────
 // Báo cáo sáng đọc giờ/phút/ngày từ bảng settings mỗi phút (cho phép đổi qua
-// dashboard mà không cần restart bot), chỉ gửi 1 lần/ngày nhờ chốt lastSentDate.
-let lastSentDate = null;
-
+// dashboard mà không cần restart bot). Chốt "đã gửi hôm nay" lưu vào settings
+// (không phải RAM) — restart/deploy đúng phút gửi sẽ không bắn trùng 2 lần.
 function startScheduler() {
   cron.schedule('* * * * *', async () => {
     try {
@@ -104,10 +105,10 @@ function startScheduler() {
         hour === Number(settings.morning_report_hour) &&
         minute === Number(settings.morning_report_minute) &&
         days.includes(String(dayOfWeek)) &&
-        lastSentDate !== todayKey;
+        settings.morning_report_last_sent !== todayKey;
 
       if (shouldSend) {
-        lastSentDate = todayKey;
+        await setSettings({ morning_report_last_sent: todayKey });
         await sendMorningNotifications();
       }
     } catch (err) {

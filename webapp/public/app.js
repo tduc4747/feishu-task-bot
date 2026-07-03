@@ -1,15 +1,17 @@
-// Phải khớp 1:1 với config.js (COLS/STATUS) ở backend — nhân bản nhỏ vì frontend không import được file Node.
-const COLS = {
+// COLS/STATUS lấy từ /app/config.js (sinh động từ config.js backend) — fallback phòng khi
+// file config chưa load được (vd cache cũ) để app không trắng màn hình.
+const COLS = window.APP_CONFIG?.COLS || {
   TASK_NAME: 'Task', SKU: 'Tên sản phẩm / SKU', MO_TA_CHI_TIET: 'Mô tả chi tiết',
   TRANG_THAI: 'Trạng thái', NGUOI_GIAO: 'Người giao', NGUOI_THUC_HIEN: 'Người thực hiện', DEADLINE: 'Deadline',
 };
-const STATUS = {
+const STATUS = window.APP_CONFIG?.STATUS || {
   CHO_GAN: 'Chờ gán người thực hiện', DANG_CHO: 'Đang chờ', DANG_LAM: 'Đang làm',
   CHO_CHECK: 'Chờ check', HOAN_THANH: 'Hoàn thành',
 };
+// Mỗi trạng thái một màu riêng để liếc qua là biết task đang ở bước nào của pipeline.
 const STATUS_DOT = {
-  [STATUS.CHO_GAN]: 'warn', [STATUS.DANG_CHO]: 'idle', [STATUS.DANG_LAM]: 'warn',
-  [STATUS.CHO_CHECK]: 'warn', [STATUS.HOAN_THANH]: 'ok',
+  [STATUS.CHO_GAN]: 'pending', [STATUS.DANG_CHO]: 'idle', [STATUS.DANG_LAM]: 'active',
+  [STATUS.CHO_CHECK]: 'review', [STATUS.HOAN_THANH]: 'ok',
 };
 // Phải khớp với MAX_FILE_SIZE ở api.js (giới hạn dung lượng do multer chặn).
 const MAX_ATTACHMENTS = 5;
@@ -25,7 +27,11 @@ function fmtDate(ms) {
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
 }
 function userName(val) { return val?.[0]?.name || 'N/A'; }
-function esc(s) { return String(s ?? '').replace(/"/g, '&quot;'); }
+// Escape đầy đủ — dữ liệu người dùng (tên task, mô tả, tên người...) luôn đi qua đây
+// trước khi đổ vào innerHTML, tránh stored XSS (vd tên task chứa <img onerror=...>).
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
 const ROLE_LABEL = { admin: 'ADMIN', sale: 'SALE', sale_tq: 'SALE TQ', media: 'MEDIA' };
 const ROLE_RANK = { admin: 4, sale: 3, sale_tq: 2, media: 1 };
@@ -54,68 +60,236 @@ function sortSaleMembers(members) {
 
 function grid(html) { return `<div class="grid">${html}</div>`; }
 function statusPill(status) {
-  return `<span class="status-pill"><span class="status-dot ${STATUS_DOT[status] || ''}"></span>${status || '—'}</span>`;
+  return `<span class="status-pill"><span class="status-dot ${STATUS_DOT[status] || ''}"></span>${esc(status) || '—'}</span>`;
 }
 // ID hiện trước tên task trong mọi card, ví dụ "12-Lật hình sản phẩm".
 // Dùng đúng record_id (= cột id trong bảng tasks) — không đệm số 0, để khớp 100% với ID thật trong DB.
 function taskLabel(t) {
-  return `${t.record_id}-${t.fields[COLS.TASK_NAME] || 'N/A'}`;
+  return `${t.record_id}-${esc(t.fields[COLS.TASK_NAME] || 'N/A')}`;
 }
+
+// Số ngày còn lại tới deadline (âm = quá hạn, Infinity = không có deadline)
+function daysToDeadline(t) {
+  const ms = t.fields[COLS.DEADLINE];
+  if (!ms) return Infinity;
+  const d = new Date(Number(ms)); d.setHours(0, 0, 0, 0);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  return Math.round((d - today) / 86400000);
+}
+
+// Badge "Mới" cho task vừa được gán (chưa bắt đầu, tạo trong vòng 24h) — media
+// liếc qua biết ngay có việc mới. Dùng created_at vì thời điểm gán không được lưu riêng.
+function newBadge(t) {
+  if (t.fields[COLS.TRANG_THAI] !== STATUS.DANG_CHO || !t.created_at) return '';
+  const ageMs = Date.now() - new Date(t.created_at).getTime();
+  return ageMs < 24 * 3600 * 1000 ? ' <span class="badge badge-new">Mới</span>' : '';
+}
+
+// Badge cảnh báo deadline: quá hạn (đỏ), hôm nay/ngày mai (cam). Task đã hoàn thành không hiện.
+function deadlineBadge(t) {
+  if (t.fields[COLS.TRANG_THAI] === STATUS.HOAN_THANH) return '';
+  const diff = daysToDeadline(t);
+  if (diff === Infinity) return '';
+  if (diff < 0) return ` <span class="badge badge-danger">Quá hạn ${-diff} ngày</span>`;
+  if (diff === 0) return ' <span class="badge badge-warn">Hôm nay</span>';
+  if (diff === 1) return ' <span class="badge badge-warn">Ngày mai</span>';
+  return '';
+}
+
+// Mô tả dài cắt sau 2 dòng, bấm "Xem thêm" mở ra — card gọn, màn hình chứa được nhiều task hơn.
+// Toggle xử lý bằng event delegation (gắn 1 lần ở init) vì card bị render lại liên tục.
+function noteHtml(text) {
+  if (!text) return '';
+  const long = text.length > 140 || text.split('\n').length > 3;
+  return `<div class="note-wrap"><div class="note${long ? ' clamp' : ''}">${esc(text)}</div>${long ? '<button type="button" class="link-btn" data-note-toggle>Xem thêm</button>' : ''}</div>`;
+}
+
+const IMG_EXT = /\.(jpe?g|png|gif|webp|bmp)(\?|$)/i;
+
+// File đính kèm: ảnh hiện thumbnail bấm mở to; file khác hiện tên thật,
+// quá 2 file thì gom lại sau nút "+N file khác" (delegation toggle).
 function attachmentsHtml(t) {
   const list = t.attachments || [];
   if (list.length === 0) return '';
-  if (list.length === 1) {
-    return `<div class="meta">${icon('paperclip', 14)}<a href="${list[0].url}" target="_blank" rel="noopener">Xem file đính kèm</a></div>`;
-  }
-  return `<div class="meta">${icon('paperclip', 14)}${list.map((a, i) => `<a href="${a.url}" target="_blank" rel="noopener">File ${i + 1}</a>`).join(', ')}</div>`;
+  const imgs = list.filter(a => IMG_EXT.test(a.url));
+  const files = list.filter(a => !IMG_EXT.test(a.url));
+
+  const thumbs = imgs.map(a =>
+    `<a href="${esc(a.url)}" target="_blank" rel="noopener" title="${esc(a.name || '')}"><img class="thumb" src="${esc(a.url)}" alt="${esc(a.name || 'ảnh')}" loading="lazy"></a>`).join('');
+
+  const fileLink = (a, i) => {
+    const n = a.name || `File ${i + 1}`;
+    const s = n.length > 28 ? n.slice(0, 25) + '…' : n;
+    return `<a href="${esc(a.url)}" target="_blank" rel="noopener" title="${esc(a.name || '')}">${esc(s)}</a>`;
+  };
+  const shown = files.slice(0, 2);
+  const extra = files.slice(2);
+
+  return `<div class="att-wrap">
+    ${thumbs ? `<div class="thumb-row">${thumbs}</div>` : ''}
+    ${files.length ? `<div class="meta">${icon('paperclip', 14)}<span>${shown.map(fileLink).join(', ')}${extra.length ? `, <a href="#" data-att-toggle data-more="+${extra.length} file khác">+${extra.length} file khác</a>` : ''}</span></div>` : ''}
+    ${extra.length ? `<div class="att-extra meta" hidden>${extra.map((a, i) => fileLink(a, i + 2)).join(', ')}</div>` : ''}
+  </div>`;
 }
 
 const TAB_ICON = {
-  create: 'send', createMedia: 'send', sent: 'file', mine: 'check', pending: 'clock', workload: 'users', mediaCalendar: 'calendar',
+  home: 'home', create: 'send', createMedia: 'send', sent: 'file', mine: 'check', pending: 'clock', mediaCalendar: 'calendar',
   completed: 'check', users: 'user', templates: 'template', uploads: 'paperclip', manageAll: 'settings',
 };
 
-function setNav(tabs) {
-  navEl.innerHTML = '';
-  tabs.forEach(t => {
-    const btn = document.createElement('button');
-    btn.title = t.label;
-    btn.innerHTML = `${icon(TAB_ICON[t.key] || 'file', 15)}<span class="label">${t.label}</span>`;
-    btn.style.display = 'inline-flex';
-    btn.style.alignItems = 'center';
-    btn.style.gap = '6px';
-    btn.className = state.tab === t.key ? 'active' : '';
-    btn.onclick = () => { state.tab = t.key; render(); };
-    navEl.appendChild(btn);
+function navBtn(t) {
+  const btn = document.createElement('button');
+  btn.title = t.label;
+  btn.dataset.key = t.key;
+  btn.innerHTML = `${icon(TAB_ICON[t.key] || 'file', 15)}<span class="label">${t.label}</span>`;
+  btn.style.display = 'inline-flex';
+  btn.style.alignItems = 'center';
+  btn.style.gap = '6px';
+  btn.className = state.tab === t.key ? 'active' : '';
+  btn.onclick = () => { state.tab = t.key; render(); };
+  return btn;
+}
+
+// Modal chọn tab (dùng cho nút "Quản trị" trên desktop và nút "Thêm" của bottom bar mobile)
+function openTabPickerModal(title, tabs) {
+  openModal({
+    title,
+    size: 'sm',
+    bodyHtml: tabs.map(t => `
+      <button type="button" class="btn-secondary nav-menu-item ${state.tab === t.key ? 'active' : ''}" data-tab="${t.key}">
+        ${icon(TAB_ICON[t.key] || 'file', 15)}${t.label}
+      </button>`).join(''),
+    onMount: (panel) => {
+      panel.querySelectorAll('[data-tab]').forEach(b => {
+        b.onclick = () => { closeModal(); state.tab = b.dataset.tab; render(); };
+      });
+    },
   });
 }
 
-// opts: { actionsHtml, titleActionsHtml, person: 'giao'|'thuchien'|'none', showStatus, showMota }
+// Badge số đỏ trên tab: việc đang chờ mình (fetch nền sau khi vẽ nav, lỗi thì bỏ qua)
+async function decorateNavBadges() {
+  try {
+    const c = await window.Api.getBadgeCounts();
+    const map = { mine: c.mine, sent: c.sent, pending: c.pending };
+    const addBadge = (btn, n) => {
+      btn.querySelector('.nav-badge')?.remove();
+      if (n > 0) {
+        const span = document.createElement('span');
+        span.className = 'nav-badge';
+        span.textContent = n > 99 ? '99+' : n;
+        btn.appendChild(span);
+      }
+    };
+    document.querySelectorAll('nav button[data-key], #bottom-nav button[data-key]').forEach(b => addBadge(b, map[b.dataset.key] || 0));
+    // Mobile: tab có badge nhưng bị gom vào nút "Thêm" -> dồn tổng số lên nút "Thêm".
+    // Chỉ tính tab mà role này thực sự có (nav trên desktop chứa đủ tab của user) —
+    // không thì sale bị đếm cả số "Chờ gán" vốn là tab của admin.
+    const moreBtn = document.querySelector('#bottom-nav button[data-key="__more"]');
+    if (moreBtn) {
+      const myTabKeys = new Set([...document.querySelectorAll('nav button[data-key]')].map(b => b.dataset.key));
+      const bottomKeys = new Set([...document.querySelectorAll('#bottom-nav button[data-key]')].map(b => b.dataset.key));
+      const hiddenTotal = Object.entries(map).reduce(
+        (sum, [k, n]) => sum + (myTabKeys.has(k) && !bottomKeys.has(k) ? n : 0), 0);
+      addBadge(moreBtn, hiddenTotal);
+    }
+  } catch (err) { /* badge chỉ là trang trí, không chặn app */ }
+}
+
+// Bottom tab bar cho mobile (<640px): 4 tab đầu + nút "Thêm" mở modal chứa phần còn lại.
+// Trên desktop bar này ẩn bằng CSS, nav ngang hiện như cũ.
+function buildBottomNav(tabs, adminTabs) {
+  let bar = document.getElementById('bottom-nav');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'bottom-nav';
+    document.body.appendChild(bar);
+  }
+  bar.innerHTML = '';
+
+  const primary = tabs.slice(0, 4);
+  const rest = [...tabs.slice(4), ...adminTabs];
+
+  primary.forEach(t => {
+    const btn = document.createElement('button');
+    btn.dataset.key = t.key;
+    btn.className = state.tab === t.key ? 'active' : '';
+    btn.innerHTML = `${icon(TAB_ICON[t.key] || 'file', 18)}<span>${t.label}</span>`;
+    btn.onclick = () => { state.tab = t.key; render(); };
+    bar.appendChild(btn);
+  });
+
+  if (rest.length) {
+    const isActive = rest.some(t => t.key === state.tab);
+    const btn = document.createElement('button');
+    btn.dataset.key = '__more';
+    btn.className = isActive ? 'active' : '';
+    btn.innerHTML = `${icon('menu', 18)}<span>Thêm</span>`;
+    btn.onclick = () => openTabPickerModal('Tất cả chức năng', rest);
+    bar.appendChild(btn);
+  }
+}
+
+// Tab quản trị (admin) gom vào 1 nút mở modal chọn — nav 12 tab tràn màn hình,
+// mobile chỉ còn icon phải đoán. Sale/Media không đổi gì (họ chỉ có 3-4 tab).
+function setNav(tabs, adminTabs = []) {
+  navEl.innerHTML = '';
+  tabs.forEach(t => navEl.appendChild(navBtn(t)));
+
+  if (adminTabs.length) {
+    const isActive = adminTabs.some(t => t.key === state.tab);
+    const btn = document.createElement('button');
+    btn.title = 'Quản trị';
+    btn.innerHTML = `${icon('settings', 15)}<span class="label">Quản trị</span>${icon('chevron', 13)}`;
+    btn.style.display = 'inline-flex';
+    btn.style.alignItems = 'center';
+    btn.style.gap = '6px';
+    btn.className = isActive ? 'active' : '';
+    btn.onclick = () => openTabPickerModal('Quản trị', adminTabs);
+    navEl.appendChild(btn);
+  }
+
+  buildBottomNav(tabs, adminTabs);
+  decorateNavBadges();
+}
+
+// Chặn double-click gửi trùng request (thông báo DM bắn 2 lần) — disable nút khi đang chờ.
+async function withBusy(btn, fn) {
+  if (btn.disabled) return;
+  btn.disabled = true;
+  try { await fn(); } finally { btn.disabled = false; }
+}
+
+// opts: { actionsHtml, titleActionsHtml, person: 'giao'|'thuchien'|'both'|'none', showStatus, showMota }
 function taskCard(t, opts = {}) {
   const { actionsHtml = '', titleActionsHtml = '', person = 'none', showStatus = true, showMota = false } = opts;
   const f = t.fields;
   let personLine = '';
-  if (person === 'giao') personLine = `<div class="meta">${icon('user', 14)}Người giao: ${userName(f[COLS.NGUOI_GIAO])}</div>`;
-  else if (person === 'thuchien') personLine = `<div class="meta">${icon('user', 14)}Người thực hiện: ${userName(f[COLS.NGUOI_THUC_HIEN])}</div>`;
-  else if (person === 'both') personLine = `<div class="meta">${icon('user', 14)}Người giao: ${userName(f[COLS.NGUOI_GIAO])} → Người thực hiện: ${userName(f[COLS.NGUOI_THUC_HIEN])}</div>`;
+  if (person === 'giao') personLine = `<div class="meta">${icon('user', 14)}Người giao: ${esc(userName(f[COLS.NGUOI_GIAO]))}</div>`;
+  else if (person === 'thuchien') personLine = `<div class="meta">${icon('user', 14)}Người thực hiện: ${esc(userName(f[COLS.NGUOI_THUC_HIEN]))}</div>`;
+  else if (person === 'both') personLine = `<div class="meta">${icon('user', 14)}Người giao: ${esc(userName(f[COLS.NGUOI_GIAO]))} → Người thực hiện: ${esc(userName(f[COLS.NGUOI_THUC_HIEN]))}</div>`;
 
   return `
     <div class="card" data-id="${t.record_id}">
       <div class="card-title-row">
-        <h3>${taskLabel(t)}</h3>
+        <h3>${taskLabel(t)}${newBadge(t)}</h3>
         ${titleActionsHtml ? `<div class="icon-actions">${titleActionsHtml}</div>` : ''}
       </div>
-      <div class="meta">SKU: ${f[COLS.SKU] || 'N/A'}</div>
+      <div class="meta">SKU: ${esc(f[COLS.SKU]) || 'N/A'}</div>
       ${personLine}
-      <div class="meta">${icon('calendar', 14)}Deadline: ${fmtDate(f[COLS.DEADLINE])}${showStatus ? ` &nbsp;${statusPill(f[COLS.TRANG_THAI])}` : ''}</div>
-      ${showMota && f[COLS.MO_TA_CHI_TIET] ? `<div class="note">${f[COLS.MO_TA_CHI_TIET]}</div>` : ''}
+      <div class="meta">${icon('calendar', 14)}Deadline: ${fmtDate(f[COLS.DEADLINE])}${deadlineBadge(t)}${showStatus ? ` &nbsp;${statusPill(f[COLS.TRANG_THAI])}` : ''}</div>
+      ${showMota ? noteHtml(f[COLS.MO_TA_CHI_TIET]) : ''}
       ${attachmentsHtml(t)}
       ${actionsHtml}
     </div>`;
 }
 
 function iconBtn(name, label) {
-  return `<button type="button" class="icon-btn" data-act="${name}" title="${label}">${icon(name === 'edit-status' || name === 'edit' || name === 'edit-tpl' || name === 'edit-user' ? 'edit' : name.includes('delete') ? 'trash' : name, 16)}</button>`;
+  const iconName = ['edit-status', 'edit', 'edit-tpl', 'edit-user'].includes(name) ? 'edit'
+    : name.includes('delete') ? 'trash'
+    : name === 'restore-tpl' ? 'restore'
+    : name;
+  return `<button type="button" class="icon-btn" data-act="${name}" title="${label}">${icon(iconName, 16)}</button>`;
 }
 
 // ─── Modal: sửa trạng thái task (Media) ───
@@ -134,33 +308,56 @@ function openEditStatusModal(t, onSaved) {
       <button type="button" class="btn-secondary" data-modal-close>Huỷ</button>
       <button type="button" class="btn-primary" data-act="save">${icon('check', 15)}Lưu</button>`,
     onMount: (panel) => {
-      panel.querySelector('[data-act="save"]').onclick = async () => {
+      const saveBtn = panel.querySelector('[data-act="save"]');
+      saveBtn.onclick = () => withBusy(saveBtn, async () => {
         const errEl = panel.querySelector('[data-form-error]');
         try {
           await window.Api.updateStatus(t.record_id, panel.querySelector('[data-edit="status"]').value);
           closeModal();
           onSaved();
         } catch (err) { errEl.textContent = err.message; }
-      };
+      });
     },
   });
+}
+
+// Chia danh sách task thành các cụm theo mức khẩn cấp, trả về HTML (cụm rỗng thì bỏ)
+function urgencyGroupsHtml(tasks, cardFn) {
+  const groups = [
+    { title: '🔴 Quá hạn', items: tasks.filter(t => daysToDeadline(t) < 0) },
+    { title: '🟡 Hôm nay / Ngày mai', items: tasks.filter(t => [0, 1].includes(daysToDeadline(t))) },
+    { title: 'Sắp tới', items: tasks.filter(t => daysToDeadline(t) > 1) },
+  ];
+  return groups
+    .filter(g => g.items.length)
+    .map(g => `<h3 class="group-title">${g.title} (${g.items.length})</h3>${grid(g.items.map(cardFn).join(''))}`)
+    .join('');
 }
 
 async function renderMyTasks() {
   const tasks = await window.Api.getMyTasks();
   if (tasks.length === 0) { mainEl.innerHTML = '<div class="empty">Không có task nào.</div>'; return; }
-  mainEl.innerHTML = grid(tasks.map(t => {
+  tasks.sort((a, b) => daysToDeadline(a) - daysToDeadline(b));
+  mainEl.innerHTML = urgencyGroupsHtml(tasks, t => {
     const status = t.fields[COLS.TRANG_THAI];
     let action = '';
     if (status === STATUS.DANG_CHO) action = `<button class="btn-primary" data-act="start">${icon('arrowRight', 15)}Bắt đầu làm</button>`;
     else if (status === STATUS.DANG_LAM) action = `<button class="btn-secondary" data-act="pending-check">${icon('clock', 15)}Chờ check</button>`;
     return taskCard(t, { actionsHtml: action ? `<div class="actions">${action}</div>` : '', titleActionsHtml: iconBtn('edit-status', 'Sửa trạng thái'), person: 'giao', showMota: true });
-  }).join(''));
+  });
 
   mainEl.querySelectorAll('.card').forEach(card => {
     const id = card.dataset.id;
-    card.querySelector('[data-act="start"]')?.addEventListener('click', async () => { await window.Api.startTask(id); renderMyTasks(); });
-    card.querySelector('[data-act="pending-check"]')?.addEventListener('click', async () => { await window.Api.pendingCheck(id); renderMyTasks(); });
+    const startBtn = card.querySelector('[data-act="start"]');
+    if (startBtn) startBtn.onclick = () => withBusy(startBtn, async () => {
+      try { await window.Api.startTask(id); toast('Đã bắt đầu làm', 'success'); renderMyTasks(); }
+      catch (err) { toast(err.message, 'error'); }
+    });
+    const pcBtn = card.querySelector('[data-act="pending-check"]');
+    if (pcBtn) pcBtn.onclick = () => withBusy(pcBtn, async () => {
+      try { await window.Api.pendingCheck(id); toast('Đã chuyển "Chờ check", sale sẽ nhận được thông báo duyệt', 'success'); renderMyTasks(); }
+      catch (err) { toast(err.message, 'error'); }
+    });
     card.querySelector('[data-act="edit-status"]')?.addEventListener('click', () => {
       openEditStatusModal(tasks.find(t => t.record_id === id), renderMyTasks);
     });
@@ -180,7 +377,7 @@ function openEditTaskModal(t, onSaved) {
       <label>SKU</label>
       <input data-edit="sku" value="${esc(f[COLS.SKU])}" />
       <label>Mô tả chi tiết</label>
-      <textarea data-edit="moTaChiTiet" rows="3">${f[COLS.MO_TA_CHI_TIET] || ''}</textarea>
+      <textarea data-edit="moTaChiTiet" rows="3">${esc(f[COLS.MO_TA_CHI_TIET] || '')}</textarea>
       <label>Deadline</label>
       <input type="date" data-edit="deadline" value="${deadlineVal}" />
       <div class="error" data-form-error></div>`,
@@ -188,7 +385,8 @@ function openEditTaskModal(t, onSaved) {
       <button type="button" class="btn-secondary" data-modal-close>Huỷ</button>
       <button type="button" class="btn-primary" data-act="save">${icon('check', 15)}Lưu</button>`,
     onMount: (panel) => {
-      panel.querySelector('[data-act="save"]').onclick = async () => {
+      const saveBtn = panel.querySelector('[data-act="save"]');
+      saveBtn.onclick = () => withBusy(saveBtn, async () => {
         const errEl = panel.querySelector('[data-form-error]');
         const deadlineVal2 = panel.querySelector('[data-edit="deadline"]').value;
         try {
@@ -201,7 +399,7 @@ function openEditTaskModal(t, onSaved) {
           closeModal();
           onSaved();
         } catch (err) { errEl.textContent = err.message; }
-      };
+      });
     },
   });
 }
@@ -209,21 +407,31 @@ function openEditTaskModal(t, onSaved) {
 async function renderSentTasks() {
   const tasks = await window.Api.getSentTasks();
   if (tasks.length === 0) { mainEl.innerHTML = '<div class="empty">Không có task nào.</div>'; return; }
-  mainEl.innerHTML = grid(tasks.map(t => {
+
+  // Cụm "Chờ bạn duyệt" nổi lên đầu — đây là việc duy nhất sale cần động tay ngay.
+  const sentCard = (t) => {
     const status = t.fields[COLS.TRANG_THAI];
     const completeBtn = status === STATUS.CHO_CHECK ? `<div class="actions"><button class="btn-primary" data-act="complete">${icon('check', 15)}Hoàn thành</button></div>` : '';
     const titleActionsHtml = iconBtn('edit', 'Sửa') + iconBtn('delete', 'Xoá');
     return taskCard(t, { actionsHtml: completeBtn, titleActionsHtml, person: 'thuchien', showMota: true });
-  }).join(''));
+  };
+  const needApprove = tasks.filter(t => t.fields[COLS.TRANG_THAI] === STATUS.CHO_CHECK);
+  const others = tasks.filter(t => t.fields[COLS.TRANG_THAI] !== STATUS.CHO_CHECK)
+    .sort((a, b) => daysToDeadline(a) - daysToDeadline(b));
+  mainEl.innerHTML =
+    (needApprove.length ? `<h3 class="group-title">👀 Chờ bạn duyệt (${needApprove.length})</h3>${grid(needApprove.map(sentCard).join(''))}` : '') +
+    (others.length ? `<h3 class="group-title">Đang xử lý (${others.length})</h3>${grid(others.map(sentCard).join(''))}` : '');
 
   mainEl.querySelectorAll('.card').forEach(card => {
     const id = card.dataset.id;
-    card.querySelector('[data-act="complete"]')?.addEventListener('click', async () => {
-      await window.Api.completeTask(id); renderSentTasks();
+    const completeBtn = card.querySelector('[data-act="complete"]');
+    if (completeBtn) completeBtn.onclick = () => withBusy(completeBtn, async () => {
+      try { await window.Api.completeTask(id); toast('Đã xác nhận hoàn thành', 'success'); renderSentTasks(); }
+      catch (err) { toast(err.message, 'error'); }
     });
     card.querySelector('[data-act="delete"]')?.addEventListener('click', async () => {
       if (!(await confirmModal('Xoá task này? Không thể hoàn tác.'))) return;
-      await window.Api.deleteTask(id); renderSentTasks();
+      try { await window.Api.deleteTask(id); renderSentTasks(); } catch (err) { toast(err.message, 'error'); }
     });
     card.querySelector('[data-act="edit"]')?.addEventListener('click', () => {
       openEditTaskModal(tasks.find(t => t.record_id === id), renderSentTasks);
@@ -233,7 +441,7 @@ async function renderSentTasks() {
 
 // ─── Modal: gán người thực hiện (Admin) ───
 function openAssignModal(t, mediaMembers, onSaved) {
-  const options = mediaMembers.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
+  const options = mediaMembers.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
   openModal({
     title: `Gán: ${taskLabel(t)}`,
     bodyHtml: `
@@ -244,7 +452,8 @@ function openAssignModal(t, mediaMembers, onSaved) {
       <button type="button" class="btn-secondary" data-modal-close>Huỷ</button>
       <button type="button" class="btn-primary" data-act="confirm">${icon('check', 15)}Xác nhận</button>`,
     onMount: (panel) => {
-      panel.querySelector('[data-act="confirm"]').onclick = async () => {
+      const confirmBtn = panel.querySelector('[data-act="confirm"]');
+      confirmBtn.onclick = () => withBusy(confirmBtn, async () => {
         const val = panel.querySelector('[data-f="assignee"]').value;
         const errEl = panel.querySelector('[data-form-error]');
         if (!val) { errEl.textContent = 'Chọn người thực hiện trước'; return; }
@@ -253,7 +462,7 @@ function openAssignModal(t, mediaMembers, onSaved) {
           closeModal();
           onSaved();
         } catch (err) { errEl.textContent = err.message; }
-      };
+      });
     },
   });
 }
@@ -275,32 +484,14 @@ async function renderPendingTasks() {
   });
 }
 
-// ─── Modal: chi tiết task của 1 người (Workload) ───
+// ─── Modal: chi tiết task của 1 người (dùng ở Lịch Media) ───
 async function openWorkloadDetailModal(member) {
-  openModal({ title: `Task của ${member.name}`, size: 'lg', bodyHtml: '<p class="modal-text">Đang tải...</p>' });
+  openModal({ title: `Task của ${esc(member.name)}`, size: 'lg', bodyHtml: '<p class="modal-text">Đang tải...</p>' });
   const tasks = await window.Api.getTasksByMedia(member.id);
   const bodyHtml = tasks.length === 0
     ? '<p class="modal-text">Không có task đang xử lý.</p>'
     : grid(tasks.map(t => taskCard(t, { person: 'giao', showMota: true })).join(''));
-  openModal({ title: `Task của ${member.name}`, size: 'lg', bodyHtml });
-}
-
-async function renderWorkload() {
-  const workload = await window.Api.getWorkload();
-  if (workload.length === 0) { mainEl.innerHTML = '<div class="empty">Team không có task nào.</div>'; return; }
-  mainEl.innerHTML = grid(workload.map(m => `
-    <div class="card" data-id="${m.id}">
-      <h3 class="clickable" data-act="show-detail">${m.name}</h3>
-      <div class="meta">Đang chờ: ${m.dang_cho} · Đang làm: ${m.dang_lam} · Chờ check: ${m.cho_check}</div>
-      <div class="meta"><b>Tổng: ${m.total}</b></div>
-    </div>`).join(''));
-
-  mainEl.querySelectorAll('.card').forEach(card => {
-    card.querySelector('[data-act="show-detail"]').onclick = () => {
-      const m = workload.find(x => x.id === card.dataset.id);
-      openWorkloadDetailModal(m);
-    };
-  });
+  openModal({ title: `Task của ${esc(member.name)}`, size: 'lg', bodyHtml });
 }
 
 function localDateKey(d) {
@@ -311,7 +502,7 @@ function localDateKey(d) {
 async function openMediaCalendarDayModal(member, dateKey) {
   const [y, mo, da] = dateKey.split('-').map(Number);
   const dayLabel = `${String(da).padStart(2, '0')}/${String(mo).padStart(2, '0')}/${y}`;
-  openModal({ title: `${member.name} — ${dayLabel}`, size: 'lg', bodyHtml: '<p class="modal-text">Đang tải...</p>' });
+  openModal({ title: `${esc(member.name)} — ${dayLabel}`, size: 'lg', bodyHtml: '<p class="modal-text">Đang tải...</p>' });
   const tasks = await window.Api.getTasksByMedia(member.id);
   const inRange = tasks.filter(t => {
     if (!t.fields[COLS.DEADLINE]) return false;
@@ -324,11 +515,12 @@ async function openMediaCalendarDayModal(member, dateKey) {
   const bodyHtml = inRange.length === 0
     ? '<p class="modal-text">Không có task nào phủ qua ngày này.</p>'
     : grid(inRange.map(t => taskCard(t, { person: 'giao', showMota: true })).join(''));
-  openModal({ title: `${member.name} — ${dayLabel}`, size: 'lg', bodyHtml });
+  openModal({ title: `${esc(member.name)} — ${dayLabel}`, size: 'lg', bodyHtml });
 }
 
-// ─── Lịch deadline media (Sale) — dạng lịch tháng, tô đậm theo số task chồng nhau
-// (từ ngày giao tới deadline) để thấy media nào đang bận thật sự, không chỉ đúng ngày hết hạn ───
+// ─── Lịch deadline media (Sale + Admin) — dạng lịch tháng, tô đậm theo số task chồng nhau
+// (từ ngày giao tới deadline). Thay luôn cho tab Workload cũ: dòng đếm theo trạng thái
+// ở đầu mỗi card cho admin thấy nhanh ai đang gánh bao nhiêu việc. ───
 let mediaCalendarMonthOffset = 0; // 0 = tháng hiện tại, -1 = tháng trước (giới hạn xem lùi 1 tháng)
 const WEEKDAY_LABELS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
 
@@ -369,8 +561,10 @@ async function renderMediaCalendar() {
       <button type="button" class="icon-btn" data-act="next-month" ${canGoForward ? '' : 'disabled'} style="transform:rotate(-90deg); ${canGoForward ? '' : 'opacity:.4; cursor:default;'}">${icon('chevron', 16)}</button>
     </div>
     ${grid(calendar.map(m => {
+      const counts = { [STATUS.DANG_CHO]: 0, [STATUS.DANG_LAM]: 0, [STATUS.CHO_CHECK]: 0 };
       const load = {};
       for (const t of m.tasks) {
+        if (t.status in counts) counts[t.status] += 1;
         if (!t.deadline) continue;
         const end = new Date(t.deadline); end.setHours(0, 0, 0, 0);
         const start = t.createdAt ? new Date(t.createdAt) : new Date(end);
@@ -395,9 +589,9 @@ async function renderMediaCalendar() {
         </div>`;
       }).join('');
       return `
-        <div class="card" data-id="${m.id}">
-          <h3 class="clickable" data-act="show-detail">${m.name}</h3>
-          <div class="meta">${m.tasks.length} task đang xử lý</div>
+        <div class="card" data-id="${esc(m.id)}">
+          <h3 class="clickable" data-act="show-detail">${esc(m.name)}</h3>
+          <div class="meta"><b>${m.tasks.length} task</b>&nbsp;— Đang chờ: ${counts[STATUS.DANG_CHO]} · Đang làm: ${counts[STATUS.DANG_LAM]} · Chờ check: ${counts[STATUS.CHO_CHECK]}</div>
           <div style="display:grid; grid-template-columns:repeat(7,1fr); gap:3px; margin-top:8px;">${weekdayHeader}${cellsHtml}</div>
         </div>`;
     }).join(''))}`;
@@ -427,7 +621,7 @@ function openManageTaskModal(t, mediaMembers, onSaved) {
   const f = t.fields;
   const deadlineVal = f[COLS.DEADLINE] ? new Date(Number(f[COLS.DEADLINE])).toISOString().slice(0, 10) : '';
   const currentAssigneeId = f[COLS.NGUOI_THUC_HIEN]?.[0]?.id || '';
-  const assigneeOptions = mediaMembers.map(m => `<option value="${m.id}" ${m.id === currentAssigneeId ? 'selected' : ''}>${m.name}</option>`).join('');
+  const assigneeOptions = mediaMembers.map(m => `<option value="${esc(m.id)}" ${m.id === currentAssigneeId ? 'selected' : ''}>${esc(m.name)}</option>`).join('');
   const statusOptions = Object.values(STATUS).map(s => `<option value="${s}" ${s === f[COLS.TRANG_THAI] ? 'selected' : ''}>${s}</option>`).join('');
 
   openModal({
@@ -441,7 +635,7 @@ function openManageTaskModal(t, mediaMembers, onSaved) {
       <label>SKU</label>
       <input data-edit="sku" value="${esc(f[COLS.SKU])}" />
       <label>Mô tả chi tiết</label>
-      <textarea data-edit="moTaChiTiet" rows="3">${f[COLS.MO_TA_CHI_TIET] || ''}</textarea>
+      <textarea data-edit="moTaChiTiet" rows="3">${esc(f[COLS.MO_TA_CHI_TIET] || '')}</textarea>
       <label>Deadline</label>
       <input type="date" data-edit="deadline" value="${deadlineVal}" />
       <label>Người thực hiện</label>
@@ -453,7 +647,8 @@ function openManageTaskModal(t, mediaMembers, onSaved) {
       <button type="button" class="btn-secondary" data-modal-close>Huỷ</button>
       <button type="button" class="btn-primary" data-act="save">${icon('check', 15)}Lưu</button>`,
     onMount: (panel) => {
-      panel.querySelector('[data-act="save"]').onclick = async () => {
+      const saveBtn = panel.querySelector('[data-act="save"]');
+      saveBtn.onclick = () => withBusy(saveBtn, async () => {
         const errEl = panel.querySelector('[data-form-error]');
         const deadlineVal2 = panel.querySelector('[data-edit="deadline"]').value;
         const assigneeVal = panel.querySelector('[data-edit="assignee"]').value;
@@ -469,27 +664,88 @@ function openManageTaskModal(t, mediaMembers, onSaved) {
           closeModal();
           onSaved();
         } catch (err) { errEl.textContent = err.message; }
-      };
+      });
     },
   });
 }
 
+// ─── Quản lý tổng (Admin): lọc theo trạng thái/người + tìm kiếm, mới nhất lên đầu ───
 async function renderManageAll() {
   const [tasks, members] = await Promise.all([window.Api.getAllTasksAdmin(), window.Api.getTeamMembers()]);
   const mediaMembers = members.filter(m => (m.roles || []).includes('media'));
   if (tasks.length === 0) { mainEl.innerHTML = '<div class="empty">Chưa có task nào.</div>'; return; }
-  mainEl.innerHTML = grid(tasks.map(t => taskCard(t, { titleActionsHtml: iconBtn('edit', 'Sửa'), person: 'both', showMota: true })).join(''));
 
-  mainEl.querySelectorAll('.card').forEach(card => {
-    const id = card.dataset.id;
-    card.querySelector('[data-act="edit"]').onclick = () => {
-      openManageTaskModal(tasks.find(t => t.record_id === id), mediaMembers, renderManageAll);
+  tasks.sort((a, b) => Number(b.record_id) - Number(a.record_id));
+  if (!state.manageFilters) state.manageFilters = { status: '', person: '', q: '' };
+  const f = state.manageFilters;
+
+  const isOverdue = (t) => t.fields[COLS.TRANG_THAI] !== STATUS.HOAN_THANH && daysToDeadline(t) < 0;
+  const countByStatus = {};
+  for (const t of tasks) {
+    const s = t.fields[COLS.TRANG_THAI];
+    countByStatus[s] = (countByStatus[s] || 0) + 1;
+  }
+  const overdueCount = tasks.filter(isOverdue).length;
+  // '__overdue' là chip đặc biệt (không phải trạng thái DB): task chưa xong đã trễ deadline
+  const chipDefs = [
+    { value: '', label: `Tất cả (${tasks.length})` },
+    { value: '__overdue', label: `🔴 Quá hạn (${overdueCount})` },
+    ...Object.values(STATUS).map(s => ({ value: s, label: `${s} (${countByStatus[s] || 0})` })),
+  ];
+  const statusChips = chipDefs.map(c => `
+    <div class="chip ${f.status === c.value ? 'active' : ''}" data-status="${c.value}">${c.label}</div>`).join('');
+
+  const personOptions = members
+    .map(m => `<option value="${esc(m.id)}" ${f.person === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('');
+
+  mainEl.innerHTML = `
+    <div class="card" style="margin-bottom:12px; gap:8px;">
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <input id="manage-q" placeholder="Tìm theo tên task / SKU..." value="${esc(f.q)}" style="flex:1; min-width:180px; margin-top:0;" />
+        <select id="manage-person" style="width:auto; min-width:160px; margin-top:0;">
+          <option value="">Mọi người</option>${personOptions}
+        </select>
+      </div>
+      <div class="chip-row">${statusChips}</div>
+    </div>
+    <div id="manage-list"></div>`;
+
+  const listEl = document.getElementById('manage-list');
+
+  function draw() {
+    const q = f.q.trim().toLowerCase();
+    const filtered = tasks.filter(t =>
+      (!f.status || (f.status === '__overdue' ? isOverdue(t) : t.fields[COLS.TRANG_THAI] === f.status)) &&
+      (!f.person || t.fields[COLS.NGUOI_THUC_HIEN]?.[0]?.id === f.person || t.fields[COLS.NGUOI_GIAO]?.[0]?.id === f.person) &&
+      (!q || `${t.fields[COLS.TASK_NAME] || ''} ${t.fields[COLS.SKU] || ''}`.toLowerCase().includes(q))
+    );
+    listEl.innerHTML = filtered.length === 0
+      ? '<div class="empty">Không có task nào khớp bộ lọc.</div>'
+      : grid(filtered.map(t => taskCard(t, { titleActionsHtml: iconBtn('edit', 'Sửa'), person: 'both', showMota: true })).join(''));
+    listEl.querySelectorAll('.card').forEach(card => {
+      const id = card.dataset.id;
+      card.querySelector('[data-act="edit"]').onclick = () => {
+        openManageTaskModal(tasks.find(t => t.record_id === id), mediaMembers, renderManageAll);
+      };
+    });
+  }
+
+  document.getElementById('manage-q').oninput = (e) => { f.q = e.target.value; draw(); };
+  document.getElementById('manage-person').onchange = (e) => { f.person = e.target.value; draw(); };
+  mainEl.querySelectorAll('.chip[data-status]').forEach(chip => {
+    chip.onclick = () => {
+      f.status = chip.dataset.status;
+      mainEl.querySelectorAll('.chip[data-status]').forEach(c => c.classList.toggle('active', c === chip));
+      draw();
     };
   });
+
+  draw();
 }
 
 function currentMonthStr() {
-  return new Date().toISOString().slice(0, 7);
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 async function renderCompleted() {
@@ -498,7 +754,7 @@ async function renderCompleted() {
 
   const senderOptionsHtml = isAdmin
     ? sortSaleMembers(await window.Api.getTeamMembers())
-        .map(m => `<option value="${m.id}" ${state.completedFilters.senderId === m.id ? 'selected' : ''}>${m.name}</option>`).join('')
+        .map(m => `<option value="${esc(m.id)}" ${state.completedFilters.senderId === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')
     : '';
 
   const filterBarHtml = `
@@ -512,19 +768,44 @@ async function renderCompleted() {
     ...(state.completedFilters.senderId ? { senderId: state.completedFilters.senderId } : {}),
   });
 
+  // Tổng kết tháng: số task, thời gian xử lý trung bình; admin thêm số task theo từng media.
+  let summaryHtml = '';
+  if (tasks.length > 0) {
+    const leadDays = tasks
+      .filter(t => t.completed_at && t.created_at)
+      .map(t => (new Date(t.completed_at) - new Date(t.created_at)) / 86400000);
+    const avg = leadDays.length ? (leadDays.reduce((a, b) => a + b, 0) / leadDays.length).toFixed(1) : null;
+    let perMedia = '';
+    if (isAdmin) {
+      const byMedia = {};
+      for (const t of tasks) {
+        const name = userName(t.fields[COLS.NGUOI_THUC_HIEN]);
+        byMedia[name] = (byMedia[name] || 0) + 1;
+      }
+      perMedia = `<div class="meta" style="flex-wrap:wrap;">${Object.entries(byMedia)
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, n]) => `${esc(name)}: <b>${n}</b>`).join(' · ')}</div>`;
+    }
+    summaryHtml = `
+      <div class="card" style="margin-bottom:12px;">
+        <div class="meta"><b>${tasks.length}</b>&nbsp;task hoàn thành trong tháng${avg ? ` · trung bình <b>&nbsp;${avg}&nbsp;</b> ngày/task` : ''}</div>
+        ${perMedia}
+      </div>`;
+  }
+
   const listHtml = tasks.length === 0
     ? '<div class="empty">Chưa có task hoàn thành.</div>'
     : grid(tasks.map(t => `
       <div class="card">
         <h3>${taskLabel(t)}</h3>
-        <div class="meta">SKU: ${t.fields[COLS.SKU]}</div>
-        <div class="meta">${icon('user', 14)}${userName(t.fields[COLS.NGUOI_GIAO])} → ${userName(t.fields[COLS.NGUOI_THUC_HIEN])}</div>
+        <div class="meta">SKU: ${esc(t.fields[COLS.SKU]) || 'N/A'}</div>
+        <div class="meta">${icon('user', 14)}${esc(userName(t.fields[COLS.NGUOI_GIAO]))} → ${esc(userName(t.fields[COLS.NGUOI_THUC_HIEN]))}</div>
         <div class="meta">${icon('calendar', 14)}Giao: ${fmtDate(new Date(t.created_at).getTime())} · Xong: ${t.completed_at ? fmtDate(new Date(t.completed_at).getTime()) : '—'}</div>
-        ${t.fields[COLS.MO_TA_CHI_TIET] ? `<div class="note">${t.fields[COLS.MO_TA_CHI_TIET]}</div>` : ''}
+        ${t.fields[COLS.MO_TA_CHI_TIET] ? `<div class="note">${esc(t.fields[COLS.MO_TA_CHI_TIET])}</div>` : ''}
         ${attachmentsHtml(t)}
       </div>`).join(''));
 
-  mainEl.innerHTML = filterBarHtml + listHtml;
+  mainEl.innerHTML = filterBarHtml + summaryHtml + listHtml;
 
   document.getElementById('filter-month').onchange = (e) => {
     state.completedFilters.month = e.target.value;
@@ -539,7 +820,7 @@ function renderAttachmentList() {
   if (!wrap) return;
   wrap.innerHTML = state.pendingAttachments.map((a, i) => `
     <div class="meta" style="justify-content:space-between;">
-      <span>${icon('file', 14)}${a.name}</span>
+      <span>${icon('file', 14)}${esc(a.name)}</span>
       <button type="button" class="icon-btn" data-remove-attachment="${i}" title="Bỏ file">${icon('close', 14)}</button>
     </div>`).join('');
   wrap.querySelectorAll('[data-remove-attachment]').forEach(btn => {
@@ -550,16 +831,64 @@ function renderAttachmentList() {
   });
 }
 
+// Listener paste gắn vào document — phải gỡ khi rời form (render() gọi removePasteListener),
+// nếu không đứng ở tab khác Ctrl+V ảnh vẫn âm thầm upload file rác lên server.
 let pasteListener = null;
+function removePasteListener() {
+  if (pasteListener) { document.removeEventListener('paste', pasteListener); pasteListener = null; }
+}
 
-async function renderCreateForm() {
-  // Form này chỉ dành cho Sale VN gửi task — "Người giao" chỉ hiện Sale VN, Sale TQ gửi qua tab riêng (renderCreateFormMedia).
-  const members = sortSaleMembers(await window.Api.getTeamMembers()).filter(m => !(m.roles || []).includes('sale_tq'));
-  const options = members.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
+// ─── Màn hình xác nhận sau khi gửi task thành công ───
+function showCreateSuccess(task, mode) {
+  mainEl.innerHTML = `
+    <div class="card" style="max-width:480px; margin:0 auto;">
+      <h3>✅ Đã gửi task!</h3>
+      <div class="meta">${taskLabel(task)}</div>
+      <div class="meta">SKU: ${esc(task.fields[COLS.SKU]) || 'N/A'}</div>
+      <div class="meta">${icon('calendar', 14)}Deadline: ${fmtDate(task.fields[COLS.DEADLINE])}</div>
+      ${task.fields[COLS.NGUOI_THUC_HIEN] ? `<div class="meta">${icon('user', 14)}Người thực hiện: ${esc(userName(task.fields[COLS.NGUOI_THUC_HIEN]))}</div>` : ''}
+      <div class="actions" style="margin-top:10px;">
+        <button class="btn-primary" data-act="again">${icon('send', 15)}Gửi task khác</button>
+      </div>
+    </div>`;
+  mainEl.querySelector('[data-act="again"]').onclick = () => renderTaskForm(mode);
+}
+
+// ─── Form gửi task dùng chung cho 2 luồng (trước đây là 2 hàm nhân bản ~120 dòng/hàm):
+// mode 'sale':  Sale VN gửi task — "Người giao" tuỳ chọn, chỉ hiện Sale VN.
+// mode 'media': Media gửi thay Sale TQ — "Người giao" bắt buộc là Sale TQ,
+//               thêm ô "Người thực hiện" để gán luôn, khỏi qua bước "Task chờ gán". ───
+async function renderTaskForm(mode) {
+  const allMembers = await window.Api.getTeamMembers();
+  const todayStr = new Date().toLocaleDateString('en-CA'); // chặn chọn deadline quá khứ
+
+  let giaoFieldHtml = '';
+  let assigneeFieldHtml = '';
+  if (mode === 'sale') {
+    const members = sortSaleMembers(allMembers).filter(m => !(m.roles || []).includes('sale_tq'));
+    const options = members.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
+    giaoFieldHtml = `
+      <label>Người giao (không bắt buộc)</label>
+      <select name="nguoiGiaoId" id="nguoi-giao-select" class="placeholder-active"><option value="">Để trống nếu chính bạn là người giao task này.</option>${options}</select>`;
+  } else {
+    const tqOptions = allMembers.filter(m => (m.roles || []).includes('sale_tq'))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
+    const mediaOptions = allMembers.filter(m => (m.roles || []).includes('media'))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
+    giaoFieldHtml = `
+      <label>Người giao (Sale TQ) *</label>
+      <select name="nguoiGiaoId" required><option value="">Chọn Sale TQ...</option>${tqOptions}</select>`;
+    assigneeFieldHtml = `
+      <label>Người thực hiện (không bắt buộc)</label>
+      <select name="assigneeId"><option value="">Để trống nếu chính bạn là người thực hiện.</option>${mediaOptions}</select>`;
+  }
+
   mainEl.innerHTML = `
     <form id="create-form">
-      <label>Người giao (không bắt buộc)</label>
-      <select name="nguoiGiaoId" id="nguoi-giao-select" class="placeholder-active"><option value="">Để trống nếu chính bạn là người giao task này.</option>${options}</select>
+      ${giaoFieldHtml}
+      ${assigneeFieldHtml}
 
       <label>Yêu cầu *</label>
       <div class="input-counter-wrap">
@@ -574,7 +903,7 @@ async function renderCreateForm() {
       <textarea name="moTaChiTiet" rows="4" placeholder="Mô tả chi tiết task hoặc lưu ý khi làm task."></textarea>
 
       <label>Deadline *</label>
-      <input type="date" name="deadline" required />
+      <input type="date" name="deadline" required min="${todayStr}" />
 
       <label>File gốc (không bắt buộc, tối đa ${MAX_ATTACHMENTS} file, mỗi file ≤ ${MAX_ATTACHMENT_MB}MB)</label>
       <div class="drop-zone" id="drop-zone">${icon('upload', 18)}<div>Dán hoặc kéo ảnh/tệp vào đây, hoặc bấm để chọn file (chọn được nhiều file)</div></div>
@@ -591,7 +920,7 @@ async function renderCreateForm() {
   const form = document.getElementById('create-form');
 
   const nguoiGiaoSelect = document.getElementById('nguoi-giao-select');
-  nguoiGiaoSelect.onchange = () => nguoiGiaoSelect.classList.toggle('placeholder-active', !nguoiGiaoSelect.value);
+  if (nguoiGiaoSelect) nguoiGiaoSelect.onchange = () => nguoiGiaoSelect.classList.toggle('placeholder-active', !nguoiGiaoSelect.value);
 
   const dropZone = document.getElementById('drop-zone');
   const fileInput = document.getElementById('file-input');
@@ -632,7 +961,7 @@ async function renderCreateForm() {
   dropZone.ondragleave = () => dropZone.classList.remove('dragover');
   dropZone.ondrop = (e) => { e.preventDefault(); dropZone.classList.remove('dragover'); handleFiles(e.dataTransfer.files); };
 
-  if (pasteListener) document.removeEventListener('paste', pasteListener);
+  removePasteListener();
   pasteListener = (e) => {
     const items = [...e.clipboardData.items].filter(i => i.type.startsWith('image/')).map(i => i.getAsFile());
     if (items.length) handleFiles(items);
@@ -641,150 +970,38 @@ async function renderCreateForm() {
 
   form.onsubmit = async (e) => {
     e.preventDefault();
-    const errEl = document.getElementById('form-error');
-    errEl.textContent = '';
-    const fd = new FormData(form);
-    const deadlineStr = fd.get('deadline');
-    try {
-      await window.Api.createTask({
+    const submitBtn = form.querySelector('button[type="submit"]');
+    await withBusy(submitBtn, async () => {
+      const errEl = document.getElementById('form-error');
+      errEl.textContent = '';
+      const fd = new FormData(form);
+      const deadlineStr = fd.get('deadline');
+      const body = {
         taskName: fd.get('taskName'),
         sku: fd.get('sku'),
         moTaChiTiet: fd.get('moTaChiTiet'),
         deadline: deadlineStr ? new Date(deadlineStr).getTime() : null,
-        nguoiGiaoId: fd.get('nguoiGiaoId') || undefined,
         attachments: state.pendingAttachments,
-      });
-      form.reset();
-      nguoiGiaoSelect.classList.add('placeholder-active');
-      state.pendingAttachments = [];
-      fileStatus.textContent = '';
-      renderAttachmentList();
-      updateCounter();
-      toast('Đã gửi task!', 'success');
-    } catch (err) {
-      errEl.textContent = err.message;
-    }
-  };
-}
-
-// ─── Gửi task mới (Media, thay mặt Sale TQ — Sale TQ không truy cập được app này) ───
-async function renderCreateFormMedia() {
-  const members = await window.Api.getTeamMembers();
-  const tqOptions = members.filter(m => (m.roles || []).includes('sale_tq'))
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map(m => `<option value="${m.id}">${m.name}</option>`).join('');
-  const mediaOptions = members.filter(m => (m.roles || []).includes('media'))
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map(m => `<option value="${m.id}">${m.name}</option>`).join('');
-
-  mainEl.innerHTML = `
-    <form id="create-form-media">
-      <label>Người giao (Sale TQ) *</label>
-      <select name="nguoiGiaoId" required><option value="">Chọn Sale TQ...</option>${tqOptions}</select>
-
-      <label>Người thực hiện (không bắt buộc)</label>
-      <select name="assigneeId"><option value="">Để trống nếu chính bạn là người thực hiện.</option>${mediaOptions}</select>
-
-      <label>Yêu cầu *</label>
-      <div class="input-counter-wrap">
-        <input name="taskName" id="task-name-input-media" required maxlength="50" placeholder="Ghi yêu cầu ngắn gọn (Lật hình)" />
-        <span class="char-counter" id="task-name-counter-media">0/50</span>
-      </div>
-
-      <label>Tên sản phẩm / SKU *</label>
-      <input name="sku" required placeholder="Nếu nhiều SKU thì ghi ngắn gọn (KBA-804X)" />
-
-      <label>Mô tả chi tiết (không bắt buộc)</label>
-      <textarea name="moTaChiTiet" rows="4" placeholder="Mô tả chi tiết task hoặc lưu ý khi làm task."></textarea>
-
-      <label>Deadline *</label>
-      <input type="date" name="deadline" required />
-
-      <label>File gốc (không bắt buộc, tối đa ${MAX_ATTACHMENTS} file, mỗi file ≤ ${MAX_ATTACHMENT_MB}MB)</label>
-      <div class="drop-zone" id="drop-zone-media">${icon('upload', 18)}<div>Dán hoặc kéo ảnh/tệp vào đây, hoặc bấm để chọn file (chọn được nhiều file)</div></div>
-      <input type="file" id="file-input-media" multiple style="display:none" />
-      <div class="hint" id="file-status-media"></div>
-      <div id="attachment-list" style="margin-top:6px;"></div>
-
-      <div class="error" id="form-error-media"></div>
-      <div class="actions" style="margin-top:14px;">
-        <button class="btn-primary" type="submit">${icon('send', 15)}Gửi task</button>
-      </div>
-    </form>`;
-
-  const form = document.getElementById('create-form-media');
-
-  const dropZone = document.getElementById('drop-zone-media');
-  const fileInput = document.getElementById('file-input-media');
-  const fileStatus = document.getElementById('file-status-media');
-  state.pendingAttachments = [];
-  renderAttachmentList();
-
-  const taskNameInput = document.getElementById('task-name-input-media');
-  const taskNameCounter = document.getElementById('task-name-counter-media');
-  const updateCounter = () => taskNameCounter.textContent = `${taskNameInput.value.length}/50`;
-  taskNameInput.addEventListener('input', updateCounter);
-  updateCounter();
-
-  async function handleFiles(fileList) {
-    let files = [...(fileList || [])].filter(Boolean);
-    if (files.length === 0) return;
-    const remaining = MAX_ATTACHMENTS - state.pendingAttachments.length;
-    if (files.length > remaining) {
-      files = files.slice(0, Math.max(remaining, 0));
-      toast(`Chỉ được đính kèm tối đa ${MAX_ATTACHMENTS} file/task, đã bỏ qua các file dư`, 'error');
-      if (files.length === 0) return;
-    }
-    fileStatus.textContent = `Đang tải lên ${files.length} file...`;
-    try {
-      for (const file of files) {
-        const { attachmentUrl } = await window.Api.uploadFile(file);
-        state.pendingAttachments.push({ url: attachmentUrl, name: file.name });
+      };
+      try {
+        let task;
+        if (mode === 'sale') {
+          task = await window.Api.createTask({ ...body, nguoiGiaoId: fd.get('nguoiGiaoId') || undefined });
+        } else {
+          task = await window.Api.createTaskFromMedia({
+            ...body,
+            nguoiGiaoId: fd.get('nguoiGiaoId'),
+            assigneeId: fd.get('assigneeId') || undefined,
+          });
+        }
+        state.pendingAttachments = [];
+        removePasteListener();
+        toast('Đã gửi task!', 'success');
+        showCreateSuccess(task, mode);
+      } catch (err) {
+        errEl.textContent = err.message;
       }
-      fileStatus.textContent = '';
-      renderAttachmentList();
-    } catch (err) {
-      fileStatus.textContent = `Tải file lỗi: ${err.message}`;
-    }
-  }
-  dropZone.onclick = () => fileInput.click();
-  fileInput.onchange = () => handleFiles(fileInput.files);
-  dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('dragover'); };
-  dropZone.ondragleave = () => dropZone.classList.remove('dragover');
-  dropZone.ondrop = (e) => { e.preventDefault(); dropZone.classList.remove('dragover'); handleFiles(e.dataTransfer.files); };
-
-  if (pasteListener) document.removeEventListener('paste', pasteListener);
-  pasteListener = (e) => {
-    const items = [...e.clipboardData.items].filter(i => i.type.startsWith('image/')).map(i => i.getAsFile());
-    if (items.length) handleFiles(items);
-  };
-  document.addEventListener('paste', pasteListener);
-
-  form.onsubmit = async (e) => {
-    e.preventDefault();
-    const errEl = document.getElementById('form-error-media');
-    errEl.textContent = '';
-    const fd = new FormData(form);
-    const deadlineStr = fd.get('deadline');
-    try {
-      await window.Api.createTaskFromMedia({
-        taskName: fd.get('taskName'),
-        sku: fd.get('sku'),
-        moTaChiTiet: fd.get('moTaChiTiet'),
-        deadline: deadlineStr ? new Date(deadlineStr).getTime() : null,
-        nguoiGiaoId: fd.get('nguoiGiaoId'),
-        assigneeId: fd.get('assigneeId') || undefined,
-        attachments: state.pendingAttachments,
-      });
-      form.reset();
-      state.pendingAttachments = [];
-      fileStatus.textContent = '';
-      renderAttachmentList();
-      updateCounter();
-      toast('Đã gửi task!', 'success');
-    } catch (err) {
-      errEl.textContent = err.message;
-    }
+    });
   };
 }
 
@@ -805,7 +1022,7 @@ function openUserModal(u, onSaved) {
     title: u ? 'Sửa người dùng' : 'Thêm người',
     bodyHtml: `
       <label>Open ID${u ? '' : ' (lấy bằng cách nhắn "hi" cho bot lần đầu — bỏ trống nếu chỉ là Sale TQ)'}</label>
-      <input data-f="openId" value="${u ? u.id : ''}" ${u ? 'disabled' : ''} placeholder="ou_xxxxxxxx" />
+      <input data-f="openId" value="${u ? esc(u.id) : ''}" ${u ? 'disabled' : ''} placeholder="ou_xxxxxxxx" />
       <label>Tên đầy đủ</label>
       <input data-f="name" value="${u ? esc(u.name) : ''}" placeholder="丁皇俊英 (Dustin)" />
       <label>Vị trí</label>
@@ -815,7 +1032,8 @@ function openUserModal(u, onSaved) {
       <button type="button" class="btn-secondary" data-modal-close>Huỷ</button>
       <button type="button" class="btn-primary" data-act="save">${icon('check', 15)}Lưu</button>`,
     onMount: (panel) => {
-      panel.querySelector('[data-act="save"]').onclick = async () => {
+      const saveBtn = panel.querySelector('[data-act="save"]');
+      saveBtn.onclick = () => withBusy(saveBtn, async () => {
         const errEl = panel.querySelector('[data-form-error]');
         const roles = [...panel.querySelectorAll('[data-f="roles"] input:checked')].map(i => i.value);
         const name = panel.querySelector('[data-f="name"]').value.trim();
@@ -831,7 +1049,7 @@ function openUserModal(u, onSaved) {
           closeModal();
           onSaved();
         } catch (err) { errEl.textContent = err.message; }
-      };
+      });
     },
   });
 }
@@ -847,9 +1065,9 @@ function openContactSyncModal(onDone) {
       : `
         <div class="hint" style="margin-bottom:10px;">${newMembers.length} người chưa có trong hệ thống. Chọn vị trí rồi bấm "Thêm" cho từng người.</div>
         ${newMembers.map(m => `
-          <div class="card" data-open-id="${m.openId}" style="margin-bottom:8px;">
+          <div class="card" data-open-id="${esc(m.openId)}" style="margin-bottom:8px;">
             <div class="card-title-row">
-              <h3>${m.name}</h3>
+              <h3>${esc(m.name)}</h3>
               <button type="button" class="btn-primary" data-act="add-contact">${icon('plus', 14)}Thêm</button>
             </div>
             <div data-f="roles">${userRolesCheckboxes([])}</div>
@@ -861,7 +1079,7 @@ function openContactSyncModal(onDone) {
       bodyHtml,
       onMount: (panel) => {
         panel.querySelectorAll('[data-act="add-contact"]').forEach(btn => {
-          btn.onclick = async () => {
+          btn.onclick = () => withBusy(btn, async () => {
             const card = btn.closest('[data-open-id]');
             const roles = [...card.querySelectorAll('[data-f="roles"] input:checked')].map(i => i.value);
             if (!roles.length) { toast('Chọn ít nhất 1 vị trí', 'error'); return; }
@@ -871,12 +1089,12 @@ function openContactSyncModal(onDone) {
               toast('Đã thêm', 'success');
               onDone();
             } catch (err) { toast(err.message, 'error'); }
-          };
+          });
         });
       },
     });
   }).catch(err => {
-    openModal({ title: 'Đồng bộ từ danh bạ Feishu', bodyHtml: `<p class="modal-text" style="color:var(--danger);">${err.message}</p>` });
+    openModal({ title: 'Đồng bộ từ danh bạ Feishu', bodyHtml: `<p class="modal-text" style="color:var(--danger);">${esc(err.message)}</p>` });
   });
 }
 
@@ -889,12 +1107,12 @@ async function renderUsers() {
       <button class="btn-secondary" data-act="sync-bitable-full">${icon('check', 15)}Đồng bộ lại toàn bộ Bitable</button>
     </div>
     ${grid(users.map(u => `
-      <div class="card" data-id="${u.id}">
+      <div class="card" data-id="${esc(u.id)}">
         <div class="card-title-row">
-          <h3>${u.name}</h3>
+          <h3>${esc(u.name)}</h3>
           <div class="icon-actions">${iconBtn('edit-user', 'Sửa')}${iconBtn('delete-user', 'Xoá')}</div>
         </div>
-        <div class="meta">${(u.roles || []).map(r => ROLE_LABEL[r] || r).join(', ') || '—'}</div>
+        <div class="meta">${(u.roles || []).map(r => ROLE_LABEL[r] || esc(r)).join(', ') || '—'}</div>
       </div>`).join(''))}`;
 
   document.querySelector('[data-act="add-user"]').onclick = () => openUserModal(null, renderUsers);
@@ -929,14 +1147,15 @@ function openTemplateModal(variables, tpl, onSaved) {
     bodyHtml: `
       ${tpl ? '' : '<label>Tiêu đề</label><input data-f="title" placeholder="VD: Nhắc deadline" />'}
       <label>Nội dung</label>
-      <textarea data-f="content" rows="5">${tpl ? tpl.content : ''}</textarea>
+      <textarea data-f="content" rows="5">${tpl ? esc(tpl.content) : ''}</textarea>
       ${helpHtml}
       <div class="error" data-form-error></div>`,
     footerHtml: `
       <button type="button" class="btn-secondary" data-modal-close>Huỷ</button>
       <button type="button" class="btn-primary" data-act="save">${icon('check', 15)}Lưu</button>`,
     onMount: (panel) => {
-      panel.querySelector('[data-act="save"]').onclick = async () => {
+      const saveBtn = panel.querySelector('[data-act="save"]');
+      saveBtn.onclick = () => withBusy(saveBtn, async () => {
         const errEl = panel.querySelector('[data-form-error]');
         const content = panel.querySelector('[data-f="content"]').value.trim();
         if (!content) { errEl.textContent = 'Cần nội dung'; return; }
@@ -951,7 +1170,7 @@ function openTemplateModal(variables, tpl, onSaved) {
           closeModal();
           onSaved();
         } catch (err) { errEl.textContent = err.message; }
-      };
+      });
     },
   });
 }
@@ -979,7 +1198,7 @@ function openSettingsModal(s) {
         <option value="group" ${s.morning_report_target === 'group' ? 'selected' : ''}>Gửi vào 1 group chat</option>
       </select>
       <label>Chat ID của group (chỉ dùng khi chọn "Gửi vào group")</label>
-      <input type="text" id="set-chatid" placeholder="oc_xxxxxxxx" value="${s.morning_report_group_chat_id || ''}">
+      <input type="text" id="set-chatid" placeholder="oc_xxxxxxxx" value="${esc(s.morning_report_group_chat_id || '')}">
       <div class="error" data-form-error></div>`,
     footerHtml: `
       <button type="button" class="btn-secondary" data-modal-close>Huỷ</button>
@@ -988,7 +1207,8 @@ function openSettingsModal(s) {
       panel.querySelectorAll('#set-days .day-chip').forEach(chip => {
         chip.onclick = () => chip.classList.toggle('active');
       });
-      panel.querySelector('[data-act="save-settings"]').onclick = async () => {
+      const saveBtn = panel.querySelector('[data-act="save-settings"]');
+      saveBtn.onclick = () => withBusy(saveBtn, async () => {
         const errEl = panel.querySelector('[data-form-error]');
         const [hour, minute] = panel.querySelector('#set-time').value.split(':');
         const days = Array.from(panel.querySelectorAll('#set-days .day-chip.active')).map(c => c.dataset.day).join(',');
@@ -1003,7 +1223,7 @@ function openSettingsModal(s) {
           closeModal();
           toast('Đã lưu cài đặt', 'success');
         } catch (err) { errEl.textContent = err.message; }
-      };
+      });
     },
   });
 }
@@ -1028,14 +1248,14 @@ async function renderTemplates() {
       <button class="btn-secondary" data-act="open-settings">${icon('settings', 15)}Cài đặt báo cáo sáng</button>
     </div>
     ${groups.map(g => `
-      <h3 style="margin:20px 0 8px; font-size:13px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.03em;">${g.name}</h3>
+      <h3 style="margin:20px 0 8px; font-size:13px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.03em;">${esc(g.name)}</h3>
       ${grid(g.items.map(t => `
-        <div class="card" data-key="${t.key}">
+        <div class="card" data-key="${esc(t.key)}">
           <div class="card-title-row">
-            <h3>${t.title}${t.is_system ? ' <span class="meta" style="display:inline;">(hệ thống)</span>' : ''}</h3>
-            <div class="icon-actions">${iconBtn('edit-tpl', 'Sửa')}${t.is_system ? '' : iconBtn('delete-tpl', 'Xoá')}</div>
+            <h3>${esc(t.title)}${t.is_system ? ' <span class="meta" style="display:inline;">(hệ thống)</span>' : ''}</h3>
+            <div class="icon-actions">${iconBtn('edit-tpl', 'Sửa')}${t.is_system ? iconBtn('restore-tpl', 'Khôi phục nội dung mặc định') : iconBtn('delete-tpl', 'Xoá')}</div>
           </div>
-          <div class="note">${t.content || '<i>(trống — không gửi)</i>'}</div>
+          <div class="note">${t.content ? esc(t.content) : '<i>(trống — không gửi)</i>'}</div>
         </div>`).join(''))}`).join('')}`;
 
   document.querySelector('[data-act="open-settings"]').onclick = () => openSettingsModal(settings);
@@ -1046,6 +1266,10 @@ async function renderTemplates() {
     card.querySelector('[data-act="delete-tpl"]')?.addEventListener('click', async () => {
       if (!(await confirmModal('Xoá mẫu tin nhắn này?'))) return;
       try { await window.Api.deleteMessageTemplate(key); renderTemplates(); } catch (err) { toast(err.message, 'error'); }
+    });
+    card.querySelector('[data-act="restore-tpl"]')?.addEventListener('click', async () => {
+      if (!(await confirmModal('Khôi phục nội dung mặc định cho mẫu này? Nội dung đã sửa sẽ mất.', { danger: false, confirmLabel: 'Khôi phục' }))) return;
+      try { await window.Api.deleteMessageTemplate(key); toast('Đã khôi phục nội dung mặc định', 'success'); renderTemplates(); } catch (err) { toast(err.message, 'error'); }
     });
   });
 }
@@ -1069,8 +1293,8 @@ function uploadGroupHtml(groupKey, titleHtml, files) {
       </div>
       ${files.map(f => `
         <label class="meta" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-          <input type="checkbox" class="file-checkbox" data-filename="${f.name}" data-group="${groupKey}" style="width:auto;margin:0;flex-shrink:0;">
-          <a href="${f.url}" target="_blank" rel="noopener" style="flex:1;word-break:break-all;">${f.name}</a>
+          <input type="checkbox" class="file-checkbox" data-filename="${esc(f.name)}" data-group="${groupKey}" style="width:auto;margin:0;flex-shrink:0;">
+          <a href="${esc(f.url)}" target="_blank" rel="noopener" style="flex:1;word-break:break-all;">${esc(f.name)}</a>
           <span>${fmtSize(f.size)}</span>
         </label>`).join('')}
     </div>`;
@@ -1083,7 +1307,7 @@ async function renderUploads() {
   const allFiles = [...groups.flatMap(g => g.files), ...orphans];
   const totalBytes = allFiles.reduce((sum, f) => sum + f.size, 0);
 
-  const groupsHtml = groups.map(g => uploadGroupHtml(String(g.taskId), `${String(g.taskId).padStart(2, '0')}-${g.taskName}`, g.files)).join('');
+  const groupsHtml = groups.map(g => uploadGroupHtml(String(g.taskId), esc(`${String(g.taskId).padStart(2, '0')}-${g.taskName}`), g.files)).join('');
   const orphansHtml = orphans.length ? uploadGroupHtml('orphan', 'Không thuộc task nào', orphans) : '';
 
   mainEl.innerHTML = `
@@ -1116,62 +1340,246 @@ async function renderUploads() {
   };
 }
 
+// ─── Tab "Hôm nay" — màn hình vào mặc định, mỗi role thấy đúng thứ mình cần làm ngay ───
+// Media: task khẩn cấp nhất + nút hành động. Sale: khối "Chờ bạn duyệt" + tiến độ.
+// Admin: 4 ô số bấm được + danh sách tắc lâu nhất. User nhiều role thấy các khối xếp chồng.
+
+function displayName(name) {
+  return (name || '').match(/\(([^)]+)\)/)?.[1] || name || 'bạn';
+}
+
+function deadlinePhrase(t) {
+  const d = daysToDeadline(t);
+  if (d === Infinity) return 'không có deadline';
+  if (d < 0) return `<span class="t-danger">quá hạn ${-d} ngày</span>`;
+  if (d === 0) return '<span class="t-warn">deadline hôm nay</span>';
+  if (d === 1) return '<span class="t-warn">deadline ngày mai</span>';
+  return `deadline ${fmtDate(t.fields[COLS.DEADLINE])}`;
+}
+
+function homeTaskRow(t, subHtml, actionHtml) {
+  const d = daysToDeadline(t);
+  const cls = d < 0 ? 'urgent' : (d <= 1 ? 'soon' : '');
+  return `
+    <div class="home-task ${cls}" data-id="${t.record_id}">
+      <div class="ht-info">
+        <div class="ht-title">${taskLabel(t)}</div>
+        <div class="ht-sub">${subHtml}</div>
+      </div>
+      ${actionHtml}
+    </div>`;
+}
+
+async function renderHome() {
+  const roles = state.roles;
+  const isMedia = roles.includes('media');
+  const isSale = roles.includes('sale');
+  const isAdmin = roles.includes('admin');
+
+  const [myTasks, sentTasks, allTasks, completedMonth] = await Promise.all([
+    (isMedia || isAdmin) ? window.Api.getMyTasks() : [],
+    (isSale || isAdmin) ? window.Api.getSentTasks() : [],
+    isAdmin ? window.Api.getAllTasksAdmin() : [],
+    isAdmin ? window.Api.getCompletedTasks({ month: currentMonthStr() }) : [],
+  ]);
+
+  const sections = [];
+
+  // ── Khối Media: hôm nay phải làm gì trước ──
+  if (isMedia || (isAdmin && myTasks.length > 0)) {
+    const overdue = myTasks.filter(t => daysToDeadline(t) < 0);
+    const soon = myTasks.filter(t => [0, 1].includes(daysToDeadline(t)));
+    const later = myTasks.filter(t => daysToDeadline(t) > 1);
+    const sorted = [...myTasks].sort((a, b) => daysToDeadline(a) - daysToDeadline(b));
+
+    const rows = sorted.slice(0, 3).map(t => {
+      const status = t.fields[COLS.TRANG_THAI];
+      let action = '';
+      if (status === STATUS.DANG_CHO) action = `<button class="btn-primary" data-act="start">${icon('arrowRight', 14)}Bắt đầu làm</button>`;
+      else if (status === STATUS.DANG_LAM) action = `<button class="btn-secondary" data-act="pending-check">${icon('clock', 14)}Chờ check</button>`;
+      else if (status === STATUS.CHO_CHECK) action = '<span class="ht-wait">đang chờ sale duyệt</span>';
+      const sub = `giao bởi ${esc(userName(t.fields[COLS.NGUOI_GIAO]))} · ${deadlinePhrase(t)}${newBadge(t)}`;
+      return homeTaskRow(t, sub, action);
+    }).join('');
+
+    const dateStr = new Date().toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit' });
+    sections.push(`
+      <div class="card home-sec" data-sec="media">
+        <p class="home-greet">Chào ${esc(displayName(state.me?.name))} 👋</p>
+        <p class="home-date">${dateStr[0].toUpperCase() + dateStr.slice(1)} — bạn có ${myTasks.length} task đang xử lý${overdue.length ? `, <span class="t-danger">${overdue.length} task quá hạn</span>` : ''}.</p>
+        <div class="stat-grid">
+          <div class="stat ${overdue.length ? 'stat-danger' : ''}"><div class="stat-n">${overdue.length}</div><div class="stat-l">Quá hạn</div></div>
+          <div class="stat ${soon.length ? 'stat-warn' : ''}"><div class="stat-n">${soon.length}</div><div class="stat-l">Hôm nay / mai</div></div>
+          <div class="stat"><div class="stat-n">${later.length}</div><div class="stat-l">Sắp tới</div></div>
+        </div>
+        ${rows || '<div class="empty" style="padding:16px 0;">Không có task nào — thảnh thơi!</div>'}
+        ${myTasks.length > 3 ? `<button type="button" class="link-btn" data-tab-go="mine">Xem tất cả ${myTasks.length} task →</button>` : ''}
+      </div>`);
+  }
+
+  // ── Khối Sale: chờ duyệt trên cùng + tiến độ ──
+  if (isSale || (isAdmin && sentTasks.length > 0)) {
+    const needApprove = sentTasks.filter(t => t.fields[COLS.TRANG_THAI] === STATUS.CHO_CHECK);
+    const inProgress = sentTasks.filter(t => t.fields[COLS.TRANG_THAI] !== STATUS.CHO_CHECK)
+      .sort((a, b) => daysToDeadline(a) - daysToDeadline(b));
+
+    const approveRows = needApprove.map(t => homeTaskRow(
+      t,
+      `${esc(userName(t.fields[COLS.NGUOI_THUC_HIEN]))} đã xong, đang chờ bạn kiểm tra`,
+      `<button class="btn-primary" data-act="complete">${icon('check', 14)}Duyệt xong</button>`
+    )).join('');
+
+    const progressRows = inProgress.slice(0, 5).map(t => `
+      <div class="ht-row">
+        <span class="ht-row-title">${taskLabel(t)}</span>
+        <span class="ht-row-dl">${deadlinePhrase(t)}</span>
+        <span class="ht-row-who">${esc(userName(t.fields[COLS.NGUOI_THUC_HIEN]))}</span>
+        ${statusPill(t.fields[COLS.TRANG_THAI])}
+      </div>`).join('');
+
+    sections.push(`
+      <div class="card home-sec" data-sec="sale">
+        <div class="home-sec-head">
+          <p class="home-sec-title">Chờ bạn duyệt ${needApprove.length ? `<span class="badge badge-warn">${needApprove.length}</span>` : ''}</p>
+          <button type="button" class="btn-secondary" data-tab-go="create">${icon('plus', 14)}Gửi task mới</button>
+        </div>
+        ${approveRows || '<div class="hint" style="margin:4px 0 10px;">Không có task nào chờ duyệt.</div>'}
+        ${inProgress.length ? `<p class="home-sub-title">Đang xử lý (${inProgress.length})</p>${progressRows}` : ''}
+        ${inProgress.length > 5 ? `<button type="button" class="link-btn" data-tab-go="sent">Xem tất cả →</button>` : ''}
+      </div>`);
+  }
+
+  // ── Khối Admin: hệ thống tắc ở đâu ──
+  if (isAdmin) {
+    const activeSet = [STATUS.DANG_CHO, STATUS.DANG_LAM, STATUS.CHO_CHECK];
+    const choGan = allTasks.filter(t => t.fields[COLS.TRANG_THAI] === STATUS.CHO_GAN);
+    const overdueAll = allTasks.filter(t => t.fields[COLS.TRANG_THAI] !== STATUS.HOAN_THANH && daysToDeadline(t) < 0);
+    const choCheck = allTasks.filter(t => t.fields[COLS.TRANG_THAI] === STATUS.CHO_CHECK);
+
+    const stuck = [...overdueAll].sort((a, b) => daysToDeadline(a) - daysToDeadline(b)).slice(0, 3);
+    const stuckRows = stuck.map(t => {
+      const who = t.fields[COLS.NGUOI_THUC_HIEN]
+        ? `${esc(userName(t.fields[COLS.NGUOI_THUC_HIEN]))} · ${esc(t.fields[COLS.TRANG_THAI])}`
+        : 'Chưa gán';
+      return `
+        <div class="ht-row">
+          <span class="t-danger" style="font-weight:600; flex-shrink:0;">${-daysToDeadline(t)} ngày</span>
+          <span class="ht-row-title">${taskLabel(t)}</span>
+          <span class="ht-row-who">${who}</span>
+        </div>`;
+    }).join('');
+
+    sections.push(`
+      <div class="card home-sec" data-sec="admin">
+        <p class="home-sec-title">Toàn hệ thống</p>
+        <div class="stat-grid stat-grid-4">
+          <div class="stat ${choGan.length ? 'stat-warn' : ''} clickable" data-go="pending"><div class="stat-n">${choGan.length}</div><div class="stat-l">Chờ gán</div></div>
+          <div class="stat ${overdueAll.length ? 'stat-danger' : ''} clickable" data-go="overdue"><div class="stat-n">${overdueAll.length}</div><div class="stat-l">Quá hạn</div></div>
+          <div class="stat clickable" data-go="chocheck"><div class="stat-n">${choCheck.length}</div><div class="stat-l">Chờ duyệt</div></div>
+          <div class="stat stat-ok clickable" data-go="completed"><div class="stat-n">${completedMonth.length}</div><div class="stat-l">Xong tháng ${new Date().getMonth() + 1}</div></div>
+        </div>
+        ${stuck.length ? `<p class="home-sub-title">Tắc lâu nhất</p>${stuckRows}` : '<div class="hint">Không có task quá hạn 🎉</div>'}
+      </div>`);
+  }
+
+  mainEl.innerHTML = sections.join('') || '<div class="empty">Không có gì cần chú ý hôm nay.</div>';
+
+  // Nút hành động trên từng dòng task
+  mainEl.querySelectorAll('.home-task').forEach(row => {
+    const id = row.dataset.id;
+    const bind = (act, fn, okMsg) => {
+      const btn = row.querySelector(`[data-act="${act}"]`);
+      if (btn) btn.onclick = () => withBusy(btn, async () => {
+        try { await fn(id); toast(okMsg, 'success'); renderHome(); decorateNavBadges(); }
+        catch (err) { toast(err.message, 'error'); }
+      });
+    };
+    bind('start', window.Api.startTask, 'Đã bắt đầu làm');
+    bind('pending-check', window.Api.pendingCheck, 'Đã chuyển "Chờ check", sale sẽ nhận được thông báo duyệt');
+    bind('complete', window.Api.completeTask, 'Đã xác nhận hoàn thành');
+  });
+
+  // Link "Xem tất cả" / "Gửi task mới" → nhảy tab
+  mainEl.querySelectorAll('[data-tab-go]').forEach(btn => {
+    btn.onclick = () => { state.tab = btn.dataset.tabGo; render(); };
+  });
+
+  // Ô số của admin → nhảy tới danh sách đã lọc sẵn
+  mainEl.querySelectorAll('[data-go]').forEach(el => {
+    el.onclick = () => {
+      const go = el.dataset.go;
+      if (go === 'pending') state.tab = 'pending';
+      else if (go === 'completed') state.tab = 'completed';
+      else {
+        state.tab = 'manageAll';
+        state.manageFilters = { status: go === 'overdue' ? '__overdue' : STATUS.CHO_CHECK, person: '', q: '' };
+      }
+      render();
+    };
+  });
+}
+
 // Mở từ "+" menu shortcut trong chat Feishu (panel nhỏ): chỉ hiện đúng form
 // "Gửi task mới" của Sale, không có thanh tab, để gọn cho không gian hẹp của panel "+".
 function renderEmbedCreate() {
   const roles = state.roles;
   navEl.style.display = 'none';
-  if (roles.includes('sale') || roles.includes('admin')) { renderCreateForm(); return; }
+  document.getElementById('bottom-nav')?.remove();
+  if (roles.includes('sale') || roles.includes('admin')) { renderTaskForm('sale'); return; }
   mainEl.innerHTML = '<div class="empty">Bạn không có quyền gửi task.</div>';
 }
 
 function render() {
+  // Rời form tạo task thì gỡ paste listener — tránh Ctrl+V ở tab khác âm thầm upload file.
+  removePasteListener();
   if (state.embed) { renderEmbedCreate(); return; }
   const roles = state.roles;
-  const tabs = [];
+  const tabs = [{ key: 'home', label: 'Hôm nay' }];
   if (roles.includes('sale') || roles.includes('admin')) tabs.push({ key: 'create', label: 'Gửi task mới' });
   if (roles.includes('sale') || roles.includes('admin')) tabs.push({ key: 'sent', label: 'Task đã gửi' });
   if (roles.includes('sale') || roles.includes('admin')) tabs.push({ key: 'mediaCalendar', label: 'Lịch Media' });
   if (roles.includes('media') || roles.includes('admin')) tabs.push({ key: 'mine', label: 'Task của tôi' });
   if (roles.includes('media')) tabs.push({ key: 'createMedia', label: 'Gửi task (Sale TQ)' });
-  if (roles.includes('admin')) {
-    tabs.push({ key: 'pending', label: 'Task chờ gán' });
-    tabs.push({ key: 'workload', label: 'Workload' });
-  }
+  if (roles.includes('admin')) tabs.push({ key: 'pending', label: 'Task chờ gán' });
   tabs.push({ key: 'completed', label: 'Task đã làm' });
-  if (roles.includes('admin')) {
-    tabs.push({ key: 'manageAll', label: 'Quản lý tổng' });
-    tabs.push({ key: 'users', label: 'Quản lý người' });
-    tabs.push({ key: 'templates', label: 'Mẫu tin nhắn' });
-    tabs.push({ key: 'uploads', label: 'File đính kèm' });
-  }
+
+  // Nhóm quản trị gom vào 1 nút riêng để nav không tràn (chỉ admin có).
+  const adminTabs = roles.includes('admin') ? [
+    { key: 'manageAll', label: 'Quản lý tổng' },
+    { key: 'users', label: 'Quản lý người' },
+    { key: 'templates', label: 'Mẫu tin nhắn' },
+    { key: 'uploads', label: 'File đính kèm' },
+  ] : [];
 
   if (!state.tab) state.tab = tabs[0]?.key;
-  setNav(tabs);
+  setNav(tabs, adminTabs);
 
   const renderers = {
-    create: renderCreateForm, createMedia: renderCreateFormMedia, sent: renderSentTasks, mine: renderMyTasks, pending: renderPendingTasks,
-    workload: renderWorkload, mediaCalendar: renderMediaCalendar, completed: renderCompleted, manageAll: renderManageAll, users: renderUsers,
+    home: renderHome,
+    create: () => renderTaskForm('sale'), createMedia: () => renderTaskForm('media'),
+    sent: renderSentTasks, mine: renderMyTasks, pending: renderPendingTasks,
+    mediaCalendar: renderMediaCalendar, completed: renderCompleted, manageAll: renderManageAll, users: renderUsers,
     templates: renderTemplates, uploads: renderUploads,
   };
   const renderTab = renderers[state.tab] || (() => { mainEl.innerHTML = '<div class="empty">Không có quyền truy cập.</div>'; });
-  // Nếu renderTab lỗi (vd 403 do thiếu role ở backend), báo lỗi rõ ràng thay vì im lặng
-  // giữ nguyên nội dung tab trước đó trên màn hình — dễ phát hiện bug hơn.
+  // Hiện spinner ngay khi chuyển tab — không giữ nguyên nội dung tab cũ trong lúc chờ fetch.
+  mainEl.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  // Nếu renderTab lỗi (vd 403 do thiếu role ở backend), báo lỗi rõ ràng thay vì im lặng.
   Promise.resolve(renderTab()).catch(err => {
-    mainEl.innerHTML = `<div class="error">Lỗi: ${err.message}</div>`;
+    mainEl.innerHTML = `<div class="error">Lỗi: ${esc(err.message)}</div>`;
   });
 }
 
-// ─── Header: profile chip + modal hồ sơ + welcome modal mỗi lần mở app ───
+// ─── Header: profile chip + modal hồ sơ + welcome modal (chỉ lần đầu mỗi ngày) ───
 function setupProfileChip(me) {
   const chip = document.getElementById('profile-chip');
-  chip.innerHTML = `<span class="avatar">${initials(me.name)}</span><span class="name">${me.name || ''}</span>`;
+  chip.innerHTML = `<span class="avatar">${esc(initials(me.name))}</span><span class="name">${esc(me.name || '')}</span>`;
   chip.onclick = () => openModal({
     title: 'Hồ sơ',
     bodyHtml: `
       <div class="welcome-body">
-        <div class="welcome-avatar">${initials(me.name)}</div>
-        <p class="welcome-name">${me.name || ''}</p>
+        <div class="welcome-avatar">${esc(initials(me.name))}</div>
+        <p class="welcome-name">${esc(me.name || '')}</p>
         <p class="welcome-role">${highestRoleLabel(me.roles)}</p>
       </div>`,
     footerHtml: `<button type="button" class="btn-secondary" data-act="logout">${icon('logout', 15)}Đăng xuất</button>`,
@@ -1185,13 +1593,18 @@ function setupProfileChip(me) {
 }
 
 function showWelcomeModal(me) {
+  // Chỉ chào lần đầu trong ngày — mở app chục lần/ngày mà lần nào cũng phải bấm "Bắt đầu" thì phiền.
+  const todayStr = new Date().toLocaleDateString('en-CA');
+  if (localStorage.getItem('welcomeShownDate') === todayStr) return;
+  localStorage.setItem('welcomeShownDate', todayStr);
+
   openModal({
     title: '',
     size: 'sm',
     bodyHtml: `
       <div class="welcome-body">
-        <div class="welcome-avatar">${initials(me.name)}</div>
-        <p class="welcome-name">Chào ${me.name || 'bạn'}!</p>
+        <div class="welcome-avatar">${esc(initials(me.name))}</div>
+        <p class="welcome-name">Chào ${esc(me.name || 'bạn')}!</p>
         <p class="welcome-role">${highestRoleLabel(me.roles)}</p>
       </div>`,
     footerHtml: `<button type="button" class="btn-primary" style="width:100%;justify-content:center;" data-modal-close>Bắt đầu</button>`,
@@ -1210,12 +1623,31 @@ function showWelcomeModal(me) {
       return;
     }
     state.roles = me.roles;
+    state.me = me;
+
+    // Toggle "Xem thêm" của mô tả và "+N file khác" của đính kèm — delegation 1 lần
+    // vì card bị render lại liên tục ở mọi tab.
+    document.addEventListener('click', (e) => {
+      const noteBtn = e.target.closest('[data-note-toggle]');
+      if (noteBtn) {
+        const expanded = noteBtn.closest('.note-wrap').querySelector('.note').classList.toggle('expanded');
+        noteBtn.textContent = expanded ? 'Thu gọn' : 'Xem thêm';
+        return;
+      }
+      const attBtn = e.target.closest('[data-att-toggle]');
+      if (attBtn) {
+        e.preventDefault();
+        const hidden = attBtn.closest('.att-wrap').querySelector('.att-extra').toggleAttribute('hidden');
+        attBtn.textContent = hidden ? attBtn.dataset.more : 'Thu gọn';
+      }
+    });
+
     setupProfileChip(me);
     render();
     if (!state.embed) showWelcomeModal(me);
   } catch (err) {
     if (err.message !== 'redirecting') {
-      mainEl.innerHTML = `<div class="error">Lỗi: ${err.message}</div>`;
+      mainEl.innerHTML = `<div class="error">Lỗi: ${esc(err.message)}</div>`;
     }
   }
 })();

@@ -149,6 +149,8 @@ async function getAllTasks() {
 }
 
 async function getRecord(_tableId, recordId) {
+  // id không phải số (URL bậy) -> coi như không tìm thấy, tránh lỗi 22P02 của pg thành 500
+  if (!/^\d+$/.test(String(recordId))) return null;
   const res = await pool.query('SELECT * FROM tasks WHERE id = $1', [recordId]);
   if (!res.rows[0]) return null;
   const [task] = await withAttachments([rowToRecord(res.rows[0])]);
@@ -183,10 +185,16 @@ async function getCompletedTasks({ saleId, mediaId, month } = {}) {
   const conditions = [`status = $1`];
   const values = [STATUS.HOAN_THANH];
   let i = 2;
-  if (saleId) { conditions.push(`nguoi_giao_id = $${i++}`); values.push(saleId); }
-  if (mediaId) { conditions.push(`nguoi_thuc_hien_id = $${i++}`); values.push(mediaId); }
+  // User có cả 2 role (vừa giao vừa làm): lấy task họ giao HOẶC họ thực hiện — AND sẽ ra gần như rỗng.
+  if (saleId && mediaId) {
+    conditions.push(`(nguoi_giao_id = $${i++} OR nguoi_thuc_hien_id = $${i++})`);
+    values.push(saleId, mediaId);
+  } else if (saleId) { conditions.push(`nguoi_giao_id = $${i++}`); values.push(saleId); }
+  else if (mediaId) { conditions.push(`nguoi_thuc_hien_id = $${i++}`); values.push(mediaId); }
   if (month) {
-    conditions.push(`to_char(completed_at, 'YYYY-MM') = $${i++}`);
+    // So theo giờ VN — completed_at là timestamptz, to_char mặc định theo TZ của server DB (thường UTC)
+    // sẽ đẩy task hoàn thành rạng sáng ngày 1 về tháng trước.
+    conditions.push(`to_char(completed_at AT TIME ZONE 'Asia/Ho_Chi_Minh', 'YYYY-MM') = $${i++}`);
     values.push(month);
   }
   const res = await pool.query(
@@ -231,6 +239,12 @@ async function updateRecord(_tableId, recordId, fields) {
     if (!dbCol) continue;
     sets.push(`${dbCol} = $${i++}`);
     values.push(val);
+  }
+
+  // Lùi trạng thái khỏi "Hoàn thành" (bấm nhầm rồi sửa lại) thì xoá luôn ngày hoàn thành,
+  // nếu không Bitable vẫn hiện ngày cũ dù task đang làm lại.
+  if (COLS.TRANG_THAI in fields && fields[COLS.TRANG_THAI] !== STATUS.HOAN_THANH && !('_completed_at' in fields)) {
+    sets.push(`completed_at = NULL`);
   }
 
   if (sets.length === 0) return;
@@ -312,27 +326,19 @@ async function userExists(openId) {
   return res.rows.length > 0;
 }
 
-async function getMediaMembers() {
-  const res = await pool.query(`SELECT open_id AS id, name FROM users WHERE 'media' = ANY(roles)`);
+// ─── Một truy vấn user duy nhất; các hàm dưới chỉ là bí danh theo role ───
+async function getUsers(role) {
+  const res = role
+    ? await pool.query('SELECT open_id AS id, name, roles FROM users WHERE $1 = ANY(roles) ORDER BY name', [role])
+    : await pool.query('SELECT open_id AS id, name, roles FROM users ORDER BY name');
   return res.rows;
 }
 
-// ─── Toàn bộ thành viên DS_TEAM (dùng cho dropdown "Người giao") ───
-async function getTeamMembers() {
-  const res = await pool.query('SELECT open_id AS id, name, roles FROM users ORDER BY name');
-  return res.rows;
-}
-
-async function getAdminIds() {
-  const res = await pool.query(`SELECT open_id AS id, name FROM users WHERE 'admin' = ANY(roles)`);
-  return res.rows;
-}
-
-// ─── Quản lý người (tab admin) ─────────────────────────────────────
-async function getAllUsers() {
-  const res = await pool.query('SELECT open_id AS id, name, roles FROM users ORDER BY name');
-  return res.rows;
-}
+const getMediaMembers = () => getUsers('media');
+const getAdminIds = () => getUsers('admin');
+// Toàn bộ thành viên DS_TEAM (dropdown "Người giao" + tab "Quản lý người")
+const getTeamMembers = () => getUsers();
+const getAllUsers = () => getUsers();
 
 async function deleteUser(openId) {
   await pool.query('DELETE FROM users WHERE open_id = $1', [openId]);
@@ -393,6 +399,28 @@ async function getMediaCalendar() {
   return Object.values(byMedia);
 }
 
+// ─── Số đếm cho badge trên thanh tab webapp: việc cần chú ý của từng role ───
+// mine: task được gán cho mình cần động tay (chưa bắt đầu, hoặc đã quá hạn)
+// sent: task mình giao đang chờ mình duyệt · pending: task chờ gán (admin)
+async function getBadgeCounts(openId) {
+  const active = [STATUS.DANG_CHO, STATUS.DANG_LAM, STATUS.CHO_CHECK];
+  // Deadline lưu dạng ms UTC-midnight của ngày deadline -> quá hạn khi nhỏ hơn UTC-midnight của hôm nay (giờ VN)
+  const vn = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+  const todayUtcMs = Date.UTC(vn.getFullYear(), vn.getMonth(), vn.getDate());
+
+  const res = await pool.query(
+    `SELECT
+       COUNT(*) FILTER (WHERE nguoi_thuc_hien_id = $1 AND status = ANY($2)
+                          AND (status = $3 OR (deadline IS NOT NULL AND deadline < $4))) AS mine,
+       COUNT(*) FILTER (WHERE nguoi_giao_id = $1 AND status = $5) AS sent,
+       COUNT(*) FILTER (WHERE status = $6) AS pending
+     FROM tasks`,
+    [openId, active, STATUS.DANG_CHO, todayUtcMs, STATUS.CHO_CHECK, STATUS.CHO_GAN]
+  );
+  const r = res.rows[0];
+  return { mine: Number(r.mine), sent: Number(r.sent), pending: Number(r.pending) };
+}
+
 // Khoá nội bộ dùng với updateRecord() cho field không thuộc Bitable (không sync ra ngoài)
 const INTERNAL_FIELDS = { COMPLETED_AT: '_completed_at' };
 
@@ -402,6 +430,6 @@ module.exports = {
   updateRecord, createTask, deleteTask,
   addAttachments, deleteAttachmentsByUrls, getAllAttachments,
   rowToRecord, withAttachments, setAttachmentBitableToken,
-  upsertUser, getUserRole, getUserInfo, userExists, getMediaMembers, getAdminIds, getWorkload, getMediaCalendar, getTeamMembers,
+  upsertUser, getUserRole, getUserInfo, userExists, getMediaMembers, getAdminIds, getWorkload, getMediaCalendar, getTeamMembers, getBadgeCounts,
   getAllUsers, deleteUser,
 };

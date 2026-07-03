@@ -63,8 +63,9 @@ router.get('/tasks/pending', auth.requireRole('admin'), async (req, res) => {
   res.json(await db.getPendingTasks());
 });
 
-router.get('/tasks/workload', auth.requireRole('admin'), async (req, res) => {
-  res.json(await db.getWorkload());
+// ─── Số đếm cho badge trên thanh tab (mọi role, dữ liệu chỉ của chính mình + chờ gán) ───
+router.get('/tasks/badge-counts', async (req, res) => {
+  res.json(await db.getBadgeCounts(req.openId));
 });
 
 // ─── Deadline task đang xử lý theo từng media (tab "Lịch Media") — cho Sale xem
@@ -158,6 +159,15 @@ router.post('/tasks/from-media', auth.requireRole('media'), async (req, res) => 
     const picked = members.find(m => m.id === nguoiGiaoId);
     if (!picked || !(picked.roles || []).includes('sale_tq')) {
       return res.status(400).json({ error: 'Người giao phải là Sale TQ' });
+    }
+
+    // Validate người thực hiện TRƯỚC khi tạo task — nếu để assignTask ném lỗi sau khi
+    // createTask thì task đã nằm ở "Chờ gán", user tưởng thất bại gửi lại -> trùng task.
+    if (assigneeId) {
+      const assignee = members.find(m => m.id === assigneeId);
+      if (!assignee || !(assignee.roles || []).includes('media')) {
+        return res.status(400).json({ error: 'Người thực hiện phải là Media' });
+      }
     }
 
     const task = await db.createTask({
@@ -323,19 +333,51 @@ router.post('/tasks/:id/assign', auth.requireRole('admin'), async (req, res) => 
 });
 
 // ─── Chuyển trạng thái ────────────────────────────────────────────────
+// Chỉ người liên quan tới task mới được chuyển: người thực hiện (start/chờ check),
+// thêm người giao với complete (sale duyệt), admin luôn được. Đây là route ghi —
+// không chặn thì media này bấm "Hoàn thành" được task của media khác.
+async function assertCanTransition(req, res, { allowGiao = false } = {}) {
+  const task = await db.getRecord(TASK_TABLE, req.params.id);
+  if (!task) { res.status(404).json({ error: 'Không tìm thấy task' }); return null; }
+  const roles = req.roles || await db.getUserRole(req.openId);
+  const thucHienId = task.fields[COLS.NGUOI_THUC_HIEN]?.[0]?.id;
+  const giaoId = task.fields[COLS.NGUOI_GIAO]?.[0]?.id;
+  const allowed = roles.includes('admin') || thucHienId === req.openId || (allowGiao && giaoId === req.openId);
+  if (!allowed) { res.status(403).json({ error: 'Bạn không có quyền thao tác task này' }); return null; }
+  return task;
+}
+
 router.post('/tasks/:id/start', async (req, res) => {
-  const { task } = await taskActions.startTask({ recordId: req.params.id, userId: req.openId });
-  res.json(task);
+  try {
+    if (!(await assertCanTransition(req, res))) return;
+    const { task } = await taskActions.startTask({ recordId: req.params.id, userId: req.openId });
+    res.json(task);
+  } catch (err) {
+    console.error('start lỗi:', err.message);
+    res.status(400).json({ error: err.message || 'Cập nhật trạng thái thất bại' });
+  }
 });
 
 router.post('/tasks/:id/pending-check', async (req, res) => {
-  const { task } = await taskActions.pendingCheckTask({ recordId: req.params.id, userId: req.openId });
-  res.json(task);
+  try {
+    if (!(await assertCanTransition(req, res))) return;
+    const { task } = await taskActions.pendingCheckTask({ recordId: req.params.id, userId: req.openId });
+    res.json(task);
+  } catch (err) {
+    console.error('pending-check lỗi:', err.message);
+    res.status(400).json({ error: err.message || 'Cập nhật trạng thái thất bại' });
+  }
 });
 
 router.post('/tasks/:id/complete', async (req, res) => {
-  const { task } = await taskActions.completeTask({ recordId: req.params.id, userId: req.openId });
-  res.json(task);
+  try {
+    if (!(await assertCanTransition(req, res, { allowGiao: true }))) return;
+    const { task } = await taskActions.completeTask({ recordId: req.params.id, userId: req.openId });
+    res.json(task);
+  } catch (err) {
+    console.error('complete lỗi:', err.message);
+    res.status(400).json({ error: err.message || 'Cập nhật trạng thái thất bại' });
+  }
 });
 
 // ─── Tải file/ảnh đính kèm, lưu trên volume Railway (UPLOAD_DIR) ───

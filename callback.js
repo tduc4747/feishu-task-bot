@@ -1,7 +1,8 @@
-const { sendDM, sendCard, updateCard } = require('./helpers');
-const { getUserRole, getMyTasks, getTasksBySale, getPendingTasks, getMediaMembers, getWorkload } = require('./db');
+const { sendDM, updateCard } = require('./helpers');
+const { getUserRole, getMyTasks, getTasksBySale, getPendingTasks, getMediaMembers } = require('./db');
 const taskActions = require('./taskActions');
-const { cardMediaTasks, cardSaleTasks, cardPendingTasks, cardSaleApprove, cardWorkload } = require('./cards');
+const { handleMenuAction } = require('./menuActions');
+const { cardMediaTasks, cardSaleTasks, cardPendingTasks } = require('./cards');
 
 async function handleCallback(req, res) {
   console.log('=== CALLBACK HIT ===');
@@ -30,26 +31,8 @@ async function handleCallback(req, res) {
 
     const roles = await getUserRole(userId);
 
-    if (action === 'sale_my_tasks') {
-      if (!roles.includes('sale')) { await sendDM(userId, '⛔ Bạn không có quyền truy cập.'); return; }
-      const tasks = await getTasksBySale(userId);
-      await sendCard(userId, cardSaleTasks(tasks));
-
-    } else if (action === 'media_my_tasks') {
-      if (!roles.includes('media') && !roles.includes('admin')) { await sendDM(userId, '⛔ Bạn không có quyền truy cập.'); return; }
-      const tasks = await getMyTasks(userId);
-      await sendCard(userId, cardMediaTasks(tasks));
-
-    } else if (action === 'admin_pending_tasks') {
-      if (!roles.includes('admin')) { await sendDM(userId, '⛔ Chức năng này chỉ dành cho Admin.'); return; }
-      const tasks = await getPendingTasks();
-      const members = await getMediaMembers();
-      await sendCard(userId, cardPendingTasks(tasks, members));
-
-    } else if (action === 'admin_workload') {
-      if (!roles.includes('admin')) { await sendDM(userId, '⛔ Chức năng này chỉ dành cho Admin.'); return; }
-      const workload = await getWorkload();
-      await sendCard(userId, cardWorkload(workload));
+    if (await handleMenuAction(action, userId, roles)) {
+      // Đã xử lý ở menuActions (dùng chung với webhook.js)
 
     } else if (action === 'assign_task') {
       if (!roles.includes('admin')) { await sendDM(userId, '⛔ Chức năng này chỉ dành cho Admin.'); return; }
@@ -79,13 +62,11 @@ async function handleCallback(req, res) {
     } else if (action === 'pending_check') {
       const recordId = eventData.action?.value?.record_id;
 
-      const { taskName, sku, notifyId } = await taskActions.pendingCheckTask({ recordId, userId });
+      // Card duyệt cho sale đã được gửi bên trong pendingCheckTask (dùng chung với luồng webapp)
+      await taskActions.pendingCheckTask({ recordId, userId });
       const tasks = await getMyTasks(userId);
 
-      await Promise.all([
-        cardMessageId ? updateCard(cardMessageId, cardMediaTasks(tasks)) : null,
-        sendCard(notifyId, cardSaleApprove(recordId, taskName, sku)),
-      ]);
+      if (cardMessageId) await updateCard(cardMessageId, cardMediaTasks(tasks));
 
     } else if (action === 'complete_task') {
       const recordId = eventData.action?.value?.record_id;

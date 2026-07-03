@@ -104,18 +104,28 @@ async function syncTaskToBitable(task, isRetry = false) {
 // ─── Đồng bộ task lên Bitable (gọi định kỳ từ scheduler) ───
 // full=true: đồng bộ TẤT CẢ task, không phụ thuộc updated_at (dùng khi cần đối soát lại toàn bộ,
 // ví dụ sau khi sửa sai cấu hình Bitable). full=false (mặc định): chỉ đồng bộ task thay đổi trong 24h.
+// Khoá chống chạy song song: quickSync (10s) + cron 15 phút + sync lúc start có thể trùng
+// thời điểm; 2 sync cùng gặp task chưa có bitable_record_id sẽ tạo trùng 2 record trên Bitable.
+let syncAllRunning = false;
+
 async function syncAllTasksToBitable({ full = false } = {}) {
-  const db = require('./db');
-  const res = await db.pool.query(
-    full
-      ? 'SELECT *, id AS record_id FROM tasks'
-      : `SELECT *, id AS record_id FROM tasks WHERE updated_at > now() - interval '1 day'`
-  );
-  const tasks = await db.withAttachments(res.rows.map(db.rowToRecord));
-  for (const task of tasks) {
-    await syncTaskToBitable(task);
+  if (syncAllRunning) return 0;
+  syncAllRunning = true;
+  try {
+    const db = require('./db');
+    const res = await db.pool.query(
+      full
+        ? 'SELECT *, id AS record_id FROM tasks'
+        : `SELECT *, id AS record_id FROM tasks WHERE updated_at > now() - interval '1 day'`
+    );
+    const tasks = await db.withAttachments(res.rows.map(db.rowToRecord));
+    for (const task of tasks) {
+      await syncTaskToBitable(task);
+    }
+    return tasks.length;
+  } finally {
+    syncAllRunning = false;
   }
-  return tasks.length;
 }
 
 // ─── Sync nhanh: sau 10s không có thao tác nào nữa thì chạy đồng bộ toàn bộ ───

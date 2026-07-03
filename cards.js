@@ -1,5 +1,5 @@
 const config = require('./config');
-const { formatUser, formatText, formatDate } = require('./helpers');
+const { formatUser, formatText, formatDeadline } = require('./helpers');
 
 const { STATUS } = config;
 
@@ -80,7 +80,7 @@ function cardMediaTasks(tasks) {
   tasks.forEach((t, i) => {
     const taskName = formatText(t.fields[COLS.TASK_NAME]);
     const nguoiGiao = formatUser(t.fields[COLS.NGUOI_GIAO]);
-    const deadline = formatDate(t.fields[COLS.DEADLINE]);
+    const deadline = formatDeadline(t.fields[COLS.DEADLINE]);
     const trangThai = formatText(t.fields[COLS.TRANG_THAI]);
     const recordId = t.record_id;
 
@@ -142,7 +142,7 @@ function cardSaleTasks(tasks) {
   tasks.forEach((t, i) => {
     const taskName = formatText(t.fields[COLS.TASK_NAME]);
     const nguoiThucHien = formatUser(t.fields[COLS.NGUOI_THUC_HIEN]);
-    const deadline = formatDate(t.fields[COLS.DEADLINE]);
+    const deadline = formatDeadline(t.fields[COLS.DEADLINE]);
     const trangThai = formatText(t.fields[COLS.TRANG_THAI]);
     const recordId = t.record_id;
 
@@ -195,7 +195,7 @@ function cardPendingTasks(tasks, mediaMembers) {
   tasks.forEach((t, i) => {
     const taskName = formatText(t.fields[COLS.TASK_NAME]);
     const nguoiGiao = formatUser(t.fields[COLS.NGUOI_GIAO]);
-    const deadline = formatDate(t.fields[COLS.DEADLINE]);
+    const deadline = formatDeadline(t.fields[COLS.DEADLINE]);
     const recordId = t.record_id;
 
     elements.push({
@@ -276,7 +276,7 @@ function cardMorningMedia(tasks, greeting) {
 
   tasks.forEach((t, i) => {
     const taskName = formatText(t.fields[COLS.TASK_NAME]);
-    const deadline = formatDate(t.fields[COLS.DEADLINE]);
+    const deadline = formatDeadline(t.fields[COLS.DEADLINE]);
     const trangThai = formatText(t.fields[COLS.TRANG_THAI]);
     elements.push({
       "tag": "div",

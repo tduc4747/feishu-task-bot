@@ -1,8 +1,9 @@
 const { sendDM, sendCard, formatText } = require('./helpers');
-const { getUserRole, getMyTasks, getTasksBySale, getPendingTasks, getMediaMembers, getWorkload } = require('./db');
+const { getUserRole } = require('./db');
 const db = require('./db');
 const { getRecord: getBitableRecord } = require('./bitable-legacy');
-const { cardMainMenu, cardMediaTasks, cardSaleTasks, cardPendingTasks, cardWorkload } = require('./cards');
+const { handleMenuAction } = require('./menuActions');
+const { cardMainMenu } = require('./cards');
 const config = require('./config');
 
 const { COLS } = config;
@@ -89,44 +90,10 @@ async function handleWebhook(req, res) {
       return;
     }
 
-    // ─── Xử lý action ───────────────────────────────
+    // ─── Xử lý action (4 action xem danh sách nằm ở menuActions, dùng chung với callback.js) ───
     if (action === 'show_menu') {
       await sendCard(userId, cardMainMenu(roles));
-
-    } else if (action === 'sale_my_tasks') {
-      if (!roles.includes('sale')) {
-        await sendDM(userId, '⛔ Bạn không có quyền truy cập chức năng này.');
-        return;
-      }
-      const tasks = await getTasksBySale(userId);
-      await sendCard(userId, cardSaleTasks(tasks));
-
-    } else if (action === 'media_my_tasks') {
-      if (!roles.includes('media') && !roles.includes('admin')) {
-        await sendDM(userId, '⛔ Bạn không có quyền truy cập chức năng này.');
-        return;
-      }
-      const tasks = await getMyTasks(userId);
-      await sendCard(userId, cardMediaTasks(tasks));
-
-    } else if (action === 'admin_pending_tasks') {
-      if (!roles.includes('admin')) {
-        await sendDM(userId, '⛔ Chức năng này chỉ dành cho Admin.');
-        return;
-      }
-      const tasks = await getPendingTasks();
-      const members = await getMediaMembers();
-      await sendCard(userId, cardPendingTasks(tasks, members));
-
-    } else if (action === 'admin_workload') {
-      if (!roles.includes('admin')) {
-        await sendDM(userId, '⛔ Chức năng này chỉ dành cho Admin.');
-        return;
-      }
-      const workload = await getWorkload();
-      await sendCard(userId, cardWorkload(workload));
-
-    } else {
+    } else if (!(await handleMenuAction(action, userId, roles))) {
       await sendCard(userId, cardMainMenu(roles));
     }
 

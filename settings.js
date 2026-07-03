@@ -8,6 +8,7 @@ const DEFAULTS = {
   morning_report_days:          '0,1,2,3,4,5,6',
   morning_report_target:        'individual', // individual | group
   morning_report_group_chat_id: '',
+  morning_report_last_sent:     '', // chốt "đã gửi hôm nay" (scheduler ghi, không hiện trên UI)
 };
 
 async function getAllSettings() {

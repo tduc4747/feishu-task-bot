@@ -22,6 +22,8 @@ const ICONS = {
   logout:    '<path d="M7.5 17H4.5A1.5 1.5 0 013 15.5v-11A1.5 1.5 0 014.5 3h3M13 13.5l4-3.5-4-3.5M17 10H7"/>',
   arrowRight:'<path d="M4 10h12M11 5l5 5-5 5"/>',
   filter:    '<path d="M3 5h14M6 10h8M8.5 15h3"/>',
+  restore:   '<path d="M4 10a6 6 0 106-6c-2.5 0-4.6 1.5-5.5 3.6"/><path d="M4 3.5V8h4.5"/>',
+  home:      '<path d="M3 9.5L10 3l7 6.5"/><path d="M5 8.5V16.5h10V8.5"/>',
 };
 
 function icon(name, size = 18) {

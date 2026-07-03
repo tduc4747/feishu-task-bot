@@ -14,6 +14,13 @@ const uploads = require('./uploads');
 const app = express();
 app.use(express.json());
 app.use('/api', cors({ origin: process.env.MINI_PROGRAM_ORIGIN || true }), apiRouter);
+
+// COLS/STATUS sinh động từ config.js cho frontend — hết cảnh nhân bản thủ công 2 nơi dễ lệch.
+// Đặt trước static để route này thắng khi trùng đường dẫn.
+app.get('/app/config.js', (req, res) => {
+  const { COLS, STATUS } = require('./config');
+  res.type('application/javascript').send(`window.APP_CONFIG = ${JSON.stringify({ COLS, STATUS })};`);
+});
 app.use('/app', express.static(path.join(__dirname, 'webapp/public')));
 uploads.ensureDir();
 app.use('/uploads', express.static(uploads.UPLOAD_DIR));
