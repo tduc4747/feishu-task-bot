@@ -56,20 +56,39 @@ async function translateMany(texts, target = 'zh') {
       return result;
     }
     const gTarget = target === 'zh' ? 'zh-CN' : target;
-    try {
-      const out = await googleTranslate(needApi, gTarget);
-      const toStore = [];
-      needApi.forEach((t, i) => {
-        result[t] = out[i] != null ? out[i] : t;
-        if (out[i] != null) toStore.push({ source: t, translated: out[i] });
-      });
-      if (toStore.length) await db.saveTranslations(toStore, target);
-    } catch (e) {
-      console.error('Google Translate lỗi (giữ nguyên bản gốc):', e.response?.data?.error?.message || e.message);
-      needApi.forEach(t => { if (result[t] == null) result[t] = t; });
+    // Google giới hạn 128 đoạn / request (và giới hạn ký tự) -> chia lô, dịch từng lô,
+    // cache riêng từng lô. 1 lô lỗi thì chỉ phần đó giữ tiếng Việt, không kéo hỏng cả bảng.
+    for (const batch of chunkTexts(needApi)) {
+      try {
+        const out = await googleTranslate(batch, gTarget);
+        const toStore = [];
+        batch.forEach((t, i) => {
+          result[t] = out[i] != null ? out[i] : t;
+          if (out[i] != null) toStore.push({ source: t, translated: out[i] });
+        });
+        if (toStore.length) await db.saveTranslations(toStore, target);
+      } catch (e) {
+        console.error('Google Translate lỗi (giữ nguyên bản gốc):', e.response?.data?.error?.message || e.message);
+        batch.forEach(t => { if (result[t] == null) result[t] = t; });
+      }
     }
   }
   return result;
+}
+
+// Chia danh sách chuỗi thành các lô đủ nhỏ cho Google (≤ maxCount đoạn và ≤ maxChars ký tự/lô).
+function chunkTexts(texts, maxCount = 100, maxChars = 25000) {
+  const chunks = [];
+  let cur = [];
+  let chars = 0;
+  for (const t of texts) {
+    if (cur.length && (cur.length >= maxCount || chars + t.length > maxChars)) {
+      chunks.push(cur); cur = []; chars = 0;
+    }
+    cur.push(t); chars += t.length;
+  }
+  if (cur.length) chunks.push(cur);
+  return chunks;
 }
 
 module.exports = { translateMany, FIXED };

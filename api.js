@@ -143,7 +143,8 @@ router.get('/tasks/board', async (req, res) => {
     }
     isZhViewer = roles.some(r => READONLY_ROLES.includes(r));
   }
-  let tasks = await db.getAllTasks();
+  // Bảng chỉ hiện task đang chạy -> bỏ task hoàn thành trước khi dịch (đỡ tốn dịch + nhẹ hơn).
+  let tasks = (await db.getAllTasks()).filter(t => t.fields[COLS.TRANG_THAI] !== STATUS.HOAN_THANH);
   if (isZhViewer) tasks = await translateTasksToZh(tasks);
   res.json(tasks);
 });

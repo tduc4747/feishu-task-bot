@@ -1720,9 +1720,15 @@ function showWelcomeModal(me) {
       }
     });
 
-    setupProfileChip(me);
+    // Viewer (Shenzhen Team vào bằng mã): ẩn chip Hồ sơ cho gọn — không cần đăng xuất (link chung).
+    if (isViewerOnly(me.roles)) {
+      const chip = document.getElementById('profile-chip');
+      if (chip) chip.style.display = 'none';
+    } else {
+      setupProfileChip(me);
+    }
     render();
-    if (!state.embed) showWelcomeModal(me);
+    if (!state.embed && !isViewerOnly(me.roles)) showWelcomeModal(me);
   } catch (err) {
     if (err.message !== 'redirecting') {
       mainEl.innerHTML = `<div class="error">Lỗi: ${esc(err.message)}</div>`;
