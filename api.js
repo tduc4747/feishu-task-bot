@@ -9,6 +9,7 @@ const config = require('./config');
 const messages = require('./messages');
 const settings = require('./settings');
 const uploads = require('./uploads');
+const translate = require('./translate');
 
 const { COLS, STATUS } = config;
 const TASK_TABLE = config.TABLE.TASK;
@@ -23,23 +24,42 @@ router.post('/auth/login', async (req, res) => {
     const { code } = req.body;
     if (!code) return res.status(400).json({ error: 'Thiếu code' });
 
-    const { openId } = await auth.exchangeCodeForOpenId(code);
-    const exists = await db.userExists(openId);
-    if (!exists) return res.status(403).json({ error: 'Bạn chưa được thêm vào hệ thống. Vui lòng liên hệ admin.' });
+    const { openId, name } = await auth.exchangeCodeForOpenId(code);
 
-    const roles = await db.getUserRole(openId);
+    // Người đã ở trong tổ chức Feishu đăng nhập lần đầu (vd Sale/Media TQ vừa được mời vào)
+    // -> tự tạo hồ sơ "chờ duyệt" roles=[]. Chưa có quyền gì cho tới khi admin gán vị trí ở
+    // tab "Quản lý người" — không auto-cấp quyền, vẫn an toàn.
+    let info = await db.getUserInfo(openId);
+    if (!info) {
+      await db.upsertUser(openId, name || openId, []);
+      info = { roles: [] };
+    }
+
     const token = auth.issueSessionToken(openId);
-    res.json({ token, roles });
+    res.json({ token, roles: info.roles });
   } catch (err) {
     console.error('auth/login lỗi:', err.response?.data || err.message);
     res.status(500).json({ error: 'Đăng nhập thất bại' });
   }
 });
 
+// ─── Đăng nhập "người xem" bằng mã (Shenzhen Team, không cần tài khoản Feishu) ───
+// Mã nhúng trong link .../app/?view=MÃ. Đúng mã -> cấp viewer token (chỉ xem bảng).
+router.post('/view-login', (req, res) => {
+  const code = (req.body && req.body.code) || '';
+  const expected = process.env.SHENZHEN_VIEW_CODE || '';
+  if (!expected) return res.status(500).json({ error: 'Chưa cấu hình mã xem (SHENZHEN_VIEW_CODE)' });
+  if (code !== expected) return res.status(401).json({ error: 'Mã xem không đúng' });
+  res.json({ token: auth.issueViewerToken() });
+});
+
 router.use(auth.requireAuth);
 
 // ─── Thông tin user đang đăng nhập (dùng để render UI theo role) ────
 router.get('/me', async (req, res) => {
+  // Viewer (vào bằng mã): trả danh tính tổng hợp "Shenzhen Team" role shenzhen -> frontend
+  // render đúng bảng chỉ-đọc tiếng Trung, không có tài khoản/role thật nên mọi ghi tự chặn.
+  if (req.isViewer) return res.json({ openId: null, name: 'Shenzhen Team', roles: ['shenzhen'], viewer: true });
   const info = await db.getUserInfo(req.openId);
   res.json({ openId: req.openId, name: info?.name || null, roles: info?.roles || [] });
 });
@@ -92,7 +112,43 @@ router.get('/tasks/completed', async (req, res) => {
   res.json(await db.getCompletedTasks(filter));
 });
 
-// ─── Tạo task mới (Sale) ─────────────────────────────────────────────
+// ─── Bảng task chỉ-đọc cho người xem (Sale/Media TQ) ───────────────
+// Người TQ thấy nội dung đã dịch sang tiếng Trung (tên + mô tả task; SKU/tên người GIỮ NGUYÊN,
+// trạng thái để frontend map). Giai đoạn này chưa tách VN/TQ nên trả toàn bộ task.
+async function translateTasksToZh(tasks) {
+  const texts = [];
+  for (const t of tasks) {
+    if (t.fields[COLS.TASK_NAME]) texts.push(t.fields[COLS.TASK_NAME]);
+    if (t.fields[COLS.MO_TA_CHI_TIET]) texts.push(t.fields[COLS.MO_TA_CHI_TIET]);
+  }
+  const map = await translate.translateMany(texts, 'zh');
+  const tr = (s) => (s && map[s]) || s;
+  return tasks.map(t => ({
+    ...t,
+    fields: {
+      ...t.fields,
+      [COLS.TASK_NAME]: tr(t.fields[COLS.TASK_NAME]),
+      [COLS.MO_TA_CHI_TIET]: tr(t.fields[COLS.MO_TA_CHI_TIET]),
+    },
+  }));
+}
+
+router.get('/tasks/board', async (req, res) => {
+  // Cho phép: viewer (vào bằng mã) HOẶC user thật có role shenzhen/admin.
+  let isZhViewer = req.isViewer;
+  if (!req.isViewer) {
+    const roles = req.roles || await db.getUserRole(req.openId);
+    if (!roles.some(r => ['shenzhen', 'admin'].includes(r))) {
+      return res.status(403).json({ error: 'Bạn không có quyền truy cập chức năng này' });
+    }
+    isZhViewer = roles.some(r => READONLY_ROLES.includes(r));
+  }
+  let tasks = await db.getAllTasks();
+  if (isZhViewer) tasks = await translateTasksToZh(tasks);
+  res.json(tasks);
+});
+
+// ─── Giao task VN (Sale VN + admin) ─────────────────────────────────
 router.post('/tasks', auth.requireRole('sale', 'admin'), async (req, res) => {
   try {
     const { taskName, sku, moTaChiTiet, deadline, attachments, nguoiGiaoId } = req.body;
@@ -139,10 +195,10 @@ router.post('/tasks', auth.requireRole('sale', 'admin'), async (req, res) => {
   }
 });
 
-// ─── Tạo task mới (Media, thay mặt Sale TQ — Sale TQ không truy cập được app này) ───
-// Khác /tasks (Sale): nguoiGiaoId bắt buộc và phải là Sale TQ (không cho chọn chính mình),
+// ─── Tạo task cho phía Shenzhen (chế độ "Giao cho Shenzhen" của form gộp) ───
+// Khác /tasks (chế độ VN): nguoiGiaoId bắt buộc và phải là thành viên Shenzhen Team,
 // task được gán người thực hiện luôn (mặc định là chính người tạo) để khỏi qua bước "Task chờ gán".
-router.post('/tasks/from-media', auth.requireRole('media'), async (req, res) => {
+router.post('/tasks/from-media', auth.requireRole('media', 'admin'), async (req, res) => {
   try {
     const { taskName, sku, moTaChiTiet, deadline, attachments, nguoiGiaoId, assigneeId } = req.body;
     if (!taskName || !sku || !deadline) {
@@ -152,13 +208,13 @@ router.post('/tasks/from-media', auth.requireRole('media'), async (req, res) => 
       return res.status(400).json({ error: 'Yêu cầu không được vượt quá 50 ký tự' });
     }
     if (!nguoiGiaoId) {
-      return res.status(400).json({ error: 'Thiếu người giao (Sale TQ)' });
+      return res.status(400).json({ error: 'Thiếu người giao (Shenzhen Team)' });
     }
 
     const members = await db.getTeamMembers();
     const picked = members.find(m => m.id === nguoiGiaoId);
-    if (!picked || !(picked.roles || []).includes('sale_tq')) {
-      return res.status(400).json({ error: 'Người giao phải là Sale TQ' });
+    if (!picked || !(picked.roles || []).includes('shenzhen')) {
+      return res.status(400).json({ error: 'Người giao phải là thành viên Shenzhen Team' });
     }
 
     // Validate người thực hiện TRƯỚC khi tạo task — nếu để assignTask ném lỗi sau khi
@@ -387,7 +443,7 @@ router.post('/tasks/:id/complete', async (req, res) => {
 // Bọc multer thủ công thay vì truyền trực tiếp làm middleware — multer ném lỗi
 // (vd file quá lớn) trước khi vào route handler, Express mặc định trả về trang
 // HTML lỗi chứ không phải JSON, làm frontend parse JSON bị crash.
-router.post('/uploads', (req, res, next) => {
+router.post('/uploads', auth.requireRole('sale', 'media', 'admin'), (req, res, next) => {
   upload.single('file')(req, res, (err) => {
     if (!err) return next();
     if (err.code === 'LIMIT_FILE_SIZE') {
@@ -459,8 +515,11 @@ router.post('/uploads/delete-batch', auth.requireRole('admin'), async (req, res)
 });
 
 // ─── Quản lý người (admin) ───────────────────────────────────────────
-// sale_tq: Sale Trung Quốc, ngoài tổ chức — không có Open ID Feishu, không truy cập app, chỉ để hiện tên ở ô "Người giao".
-const VALID_ROLES = ['admin', 'sale', 'sale_tq', 'media'];
+// shenzhen = "Shenzhen Team" (Sale/Media Trung Quốc): hiện chỉ có quyền XEM bảng task (không
+// thao tác), hiển thị tiếng Trung. Cũng dùng làm "Người giao" khi tạo task cho phía Shenzhen —
+// có thể là user ảo không Open ID (chưa đăng nhập) hoặc người thật đã được mời vào tổ chức.
+const VALID_ROLES = ['admin', 'sale', 'shenzhen', 'media'];
+const READONLY_ROLES = ['shenzhen'];
 
 router.get('/users', auth.requireRole('admin'), async (req, res) => {
   res.json(await db.getAllUsers());
@@ -489,9 +548,10 @@ router.post('/users', auth.requireRole('admin'), async (req, res) => {
     if (roles.some(r => !VALID_ROLES.includes(r))) {
       return res.status(400).json({ error: 'Vị trí không hợp lệ' });
     }
-    const isTqOnly = roles.every(r => r === 'sale_tq');
+    // Chỉ khi role duy nhất là shenzhen mới cho tạo user ảo không Open ID (làm "Người giao").
+    const isFakeAllowed = roles.every(r => r === 'shenzhen');
     if (!openId) {
-      if (!isTqOnly) return res.status(400).json({ error: 'Thiếu openId' });
+      if (!isFakeAllowed) return res.status(400).json({ error: 'Thiếu openId' });
       openId = `tq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     }
     if (await db.userExists(openId)) {

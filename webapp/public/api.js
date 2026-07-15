@@ -40,6 +40,17 @@ async function loginWithCodeFromUrl() {
 
 // Đảm bảo có session hợp lệ; nếu chưa có/đã hết hạn thì xử lý code từ URL hoặc redirect sang Feishu login
 async function ensureLoggedIn() {
+  // Vào bằng LINK XEM có mã: .../app/?view=MÃ (Shenzhen Team, không cần Feishu).
+  const viewCode = new URLSearchParams(window.location.search).get('view');
+  if (viewCode) {
+    const data = await request('/api/view-login', { method: 'POST', body: { code: viewCode } });
+    sessionToken = data.token;
+    localStorage.setItem('sessionToken', sessionToken);
+    // Xoá ?view khỏi thanh địa chỉ cho gọn + đỡ lộ mã.
+    window.history.replaceState({}, '', window.location.pathname);
+    return;
+  }
+
   if (sessionToken) {
     try {
       await request('/api/me');
@@ -58,6 +69,7 @@ async function ensureLoggedIn() {
 window.Api = {
   ensureLoggedIn,
   getMe: () => request('/api/me'),
+  getBoard: () => request('/api/tasks/board'),
   getTeamMembers: () => request('/api/team-members'),
   getMyTasks: () => request('/api/tasks/mine'),
   getSentTasks: () => request('/api/tasks/sent'),

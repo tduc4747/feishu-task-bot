@@ -47,18 +47,30 @@ function issueSessionToken(openId) {
   return jwt.sign({ openId }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 }
 
+// Token cho "người xem" Shenzhen Team vào bằng link+mã (không có tài khoản Feishu).
+// Chỉ đại diện quyền XEM bảng — không mang openId, không có role thật nên mọi endpoint ghi tự chặn.
+function issueViewerToken() {
+  return jwt.sign({ viewer: true }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+}
+
 function verifySessionToken(token) {
   return jwt.verify(token, JWT_SECRET).openId;
 }
 
-// ─── Middleware: xác thực JWT, gắn req.openId ───
+// ─── Middleware: xác thực JWT. Token thường -> req.openId; token viewer -> req.isViewer ───
 function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
   if (!token) return res.status(401).json({ error: 'Thiếu token đăng nhập' });
 
   try {
-    req.openId = verifySessionToken(token);
+    const payload = jwt.verify(token, JWT_SECRET);
+    if (payload.viewer) {
+      req.isViewer = true;
+      req.openId = null;
+    } else {
+      req.openId = payload.openId;
+    }
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Token không hợp lệ hoặc đã hết hạn' });
@@ -77,4 +89,4 @@ function requireRole(...allowedRoles) {
   };
 }
 
-module.exports = { exchangeCodeForOpenId, issueSessionToken, verifySessionToken, requireAuth, requireRole };
+module.exports = { exchangeCodeForOpenId, issueSessionToken, issueViewerToken, verifySessionToken, requireAuth, requireRole };

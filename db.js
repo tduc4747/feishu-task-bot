@@ -62,6 +62,16 @@ async function init() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS idx_task_attachments_task ON task_attachments(task_id);
+
+    -- Cache dịch máy (Việt -> ngôn ngữ khác) cho người xem TQ. Bảng MỚI, độc lập,
+    -- không liên quan gì tới bảng tasks — chỉ để mỗi câu chỉ gọi API dịch 1 lần.
+    CREATE TABLE IF NOT EXISTS translations (
+      source_text     TEXT NOT NULL,
+      target_lang     TEXT NOT NULL,
+      translated_text TEXT NOT NULL,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (source_text, target_lang)
+    );
   `);
 
   // Cache file_token sau khi upload file đính kèm lên Bitable — tránh upload lại
@@ -97,6 +107,12 @@ async function init() {
       AND NOT EXISTS (SELECT 1 FROM task_attachments ta WHERE ta.task_id = tasks.id AND ta.file_url = tasks.attachment_url);
   `);
   await pool.query(`ALTER TABLE tasks DROP COLUMN IF EXISTS attachment_url;`);
+
+  // Gộp role Sale/Media TQ cũ về 1 role "shenzhen" (Shenzhen Team). Idempotent — sau khi đổi
+  // xong không còn sale_tq/media_tq nên chạy lại là no-op. CHỈ đụng bảng users (phần tử trong
+  // mảng roles), KHÔNG đụng bảng tasks — rủi ro thấp, khác hẳn migration status trước đây.
+  await pool.query(`UPDATE users SET roles = array_replace(roles, 'sale_tq', 'shenzhen') WHERE 'sale_tq' = ANY(roles);`);
+  await pool.query(`UPDATE users SET roles = array_replace(roles, 'media_tq', 'shenzhen') WHERE 'media_tq' = ANY(roles);`);
 }
 
 // ─── Chuyển 1 row Postgres -> hình dạng "record" giống Bitable cũ ───
@@ -300,6 +316,31 @@ async function getAllAttachments() {
   return res.rows;
 }
 
+// ─── Cache dịch máy ──────────────────────────────────────────────
+// Lấy các bản dịch đã có sẵn cho danh sách câu gốc -> object { [gốc]: [đã dịch] }.
+async function getTranslations(sources, targetLang) {
+  if (!sources || sources.length === 0) return {};
+  const res = await pool.query(
+    'SELECT source_text, translated_text FROM translations WHERE target_lang = $1 AND source_text = ANY($2)',
+    [targetLang, sources]
+  );
+  const map = {};
+  for (const r of res.rows) map[r.source_text] = r.translated_text;
+  return map;
+}
+
+// Lưu các bản dịch mới (items: [{ source, translated }]). Idempotent theo (source, lang).
+async function saveTranslations(items, targetLang) {
+  for (const it of items) {
+    if (!it?.source) continue;
+    await pool.query(
+      `INSERT INTO translations (source_text, target_lang, translated_text) VALUES ($1, $2, $3)
+       ON CONFLICT (source_text, target_lang) DO UPDATE SET translated_text = $3`,
+      [it.source, targetLang, it.translated]
+    );
+  }
+}
+
 // ─── User / role queries ─────────────────────────────────────────
 async function upsertUser(openId, name, roles) {
   await pool.query(
@@ -430,6 +471,7 @@ module.exports = {
   updateRecord, createTask, deleteTask,
   addAttachments, deleteAttachmentsByUrls, getAllAttachments,
   rowToRecord, withAttachments, setAttachmentBitableToken,
+  getTranslations, saveTranslations,
   upsertUser, getUserRole, getUserInfo, userExists, getMediaMembers, getAdminIds, getWorkload, getMediaCalendar, getTeamMembers, getBadgeCounts,
   getAllUsers, deleteUser,
 };

@@ -33,8 +33,8 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-const ROLE_LABEL = { admin: 'ADMIN', sale: 'SALE', sale_tq: 'SALE TQ', media: 'MEDIA' };
-const ROLE_RANK = { admin: 4, sale: 3, sale_tq: 2, media: 1 };
+const ROLE_LABEL = { admin: 'ADMIN', sale: 'SALE', shenzhen: 'Shenzhen Team', media: 'MEDIA' };
+const ROLE_RANK = { admin: 4, sale: 3, shenzhen: 2, media: 1 };
 function highestRoleLabel(roles) {
   const top = [...roles].sort((a, b) => (ROLE_RANK[b] || 0) - (ROLE_RANK[a] || 0))[0];
   return ROLE_LABEL[top] || '';
@@ -46,13 +46,13 @@ function initials(name) {
   return source[0]?.toUpperCase() || '?';
 }
 
-// Sale VN xếp trước, Sale TQ xếp sau, mỗi nhóm sort A-Z theo tên.
+// Sale VN xếp trước, Shenzhen Team xếp sau, mỗi nhóm sort A-Z theo tên.
 function sortSaleMembers(members) {
   return members
-    .filter(m => (m.roles || []).some(r => r === 'sale' || r === 'sale_tq'))
+    .filter(m => (m.roles || []).some(r => r === 'sale' || r === 'shenzhen'))
     .sort((a, b) => {
-      const aTQ = (a.roles || []).includes('sale_tq') ? 1 : 0;
-      const bTQ = (b.roles || []).includes('sale_tq') ? 1 : 0;
+      const aTQ = (a.roles || []).includes('shenzhen') ? 1 : 0;
+      const bTQ = (b.roles || []).includes('shenzhen') ? 1 : 0;
       if (aTQ !== bTQ) return aTQ - bTQ;
       return a.name.localeCompare(b.name);
     });
@@ -133,7 +133,7 @@ function attachmentsHtml(t) {
 }
 
 const TAB_ICON = {
-  home: 'home', create: 'send', createMedia: 'send', sent: 'file', mine: 'check', pending: 'clock', mediaCalendar: 'calendar',
+  home: 'home', create: 'send', createMedia: 'send', sent: 'file', mine: 'check', pending: 'clock', mediaCalendar: 'calendar', board: 'file',
   completed: 'check', users: 'user', templates: 'template', uploads: 'paperclip', manageAll: 'settings',
 };
 
@@ -865,21 +865,21 @@ async function renderTaskForm(mode) {
   let giaoFieldHtml = '';
   let assigneeFieldHtml = '';
   if (mode === 'sale') {
-    const members = sortSaleMembers(allMembers).filter(m => !(m.roles || []).includes('sale_tq'));
+    const members = sortSaleMembers(allMembers).filter(m => !(m.roles || []).includes('shenzhen'));
     const options = members.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
     giaoFieldHtml = `
       <label>Người giao (không bắt buộc)</label>
       <select name="nguoiGiaoId" id="nguoi-giao-select" class="placeholder-active"><option value="">Để trống nếu chính bạn là người giao task này.</option>${options}</select>`;
   } else {
-    const tqOptions = allMembers.filter(m => (m.roles || []).includes('sale_tq'))
+    const szOptions = allMembers.filter(m => (m.roles || []).includes('shenzhen'))
       .sort((a, b) => a.name.localeCompare(b.name))
       .map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
     const mediaOptions = allMembers.filter(m => (m.roles || []).includes('media'))
       .sort((a, b) => a.name.localeCompare(b.name))
       .map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
     giaoFieldHtml = `
-      <label>Người giao (Sale TQ) *</label>
-      <select name="nguoiGiaoId" required><option value="">Chọn Sale TQ...</option>${tqOptions}</select>`;
+      <label>Người giao (Shenzhen Team) *</label>
+      <select name="nguoiGiaoId" required><option value="">Chọn thành viên Shenzhen Team...</option>${szOptions}</select>`;
     assigneeFieldHtml = `
       <label>Người thực hiện (không bắt buộc)</label>
       <select name="assigneeId"><option value="">Để trống nếu chính bạn là người thực hiện.</option>${mediaOptions}</select>`;
@@ -1006,9 +1006,9 @@ async function renderTaskForm(mode) {
 }
 
 // ─── Quản lý người (admin) ───────────────────────────────────────────
-const ALL_ROLES = ['admin', 'sale', 'sale_tq', 'media'];
-// Sale TQ nằm ngoài tổ chức, không có Open ID Feishu và không cần truy cập app.
-function isTqOnly(roles) { return roles.length > 0 && roles.every(r => r === 'sale_tq'); }
+const ALL_ROLES = ['admin', 'sale', 'shenzhen', 'media'];
+// Thành viên Shenzhen Team có thể là user ảo (không Open ID) khi chỉ dùng làm "Người giao".
+function isTqOnly(roles) { return roles.length > 0 && roles.every(r => r === 'shenzhen'); }
 
 function userRolesCheckboxes(checked = []) {
   return ALL_ROLES.map(r => `
@@ -1021,7 +1021,7 @@ function openUserModal(u, onSaved) {
   openModal({
     title: u ? 'Sửa người dùng' : 'Thêm người',
     bodyHtml: `
-      <label>Open ID${u ? '' : ' (lấy bằng cách nhắn "hi" cho bot lần đầu — bỏ trống nếu chỉ là Sale TQ)'}</label>
+      <label>Open ID${u ? '' : ' (lấy bằng cách nhắn "hi" cho bot lần đầu — bỏ trống nếu chỉ là Shenzhen Team)'}</label>
       <input data-f="openId" value="${u ? esc(u.id) : ''}" ${u ? 'disabled' : ''} placeholder="ou_xxxxxxxx" />
       <label>Tên đầy đủ</label>
       <input data-f="name" value="${u ? esc(u.name) : ''}" placeholder="丁皇俊英 (Dustin)" />
@@ -1441,7 +1441,7 @@ async function renderHome() {
       <div class="card home-sec" data-sec="sale">
         <div class="home-sec-head">
           <p class="home-sec-title">Chờ bạn duyệt ${needApprove.length ? `<span class="badge badge-warn">${needApprove.length}</span>` : ''}</p>
-          <button type="button" class="btn-secondary" data-tab-go="create">${icon('plus', 14)}Gửi task mới</button>
+          <button type="button" class="btn-secondary" data-tab-go="create">${icon('plus', 14)}Giao task VN</button>
         </div>
         ${approveRows || '<div class="hint" style="margin:4px 0 10px;">Không có task nào chờ duyệt.</div>'}
         ${inProgress.length ? `<p class="home-sub-title">Đang xử lý (${inProgress.length})</p>${progressRows}` : ''}
@@ -1529,17 +1529,88 @@ function renderEmbedCreate() {
   mainEl.innerHTML = '<div class="empty">Bạn không có quyền gửi task.</div>';
 }
 
+// ─── Bảng task chỉ-đọc cho người xem TQ (tiếng Trung) ─────────────
+// Nội dung task (tên, mô tả) đã được backend dịch sẵn sang tiếng Trung; ở đây chỉ dịch các
+// NHÃN CỐ ĐỊNH (~12 cái) + trạng thái. SKU/tên người giữ nguyên. Không có nút thao tác.
+const BOARD_ZH = {
+  tab: '任务看板',
+  hint: '您可以查看任务看板（仅查看，不可编辑）。',
+  empty: '暂无任务。',
+  sku: 'SKU', giao: '派单人', thuc: '处理人', deadline: '截止日期',
+  grpOverdue: '🔴 已逾期', grpToday: '🟡 今天 / 明天', grpUpcoming: '即将到来',
+  today: '今天', tomorrow: '明天', overdueDays: (n) => `逾期 ${n} 天`,
+  status: { 'Chờ gán người thực hiện': '待分配处理人', 'Đang chờ': '等待中', 'Đang làm': '进行中', 'Chờ check': '待检查', 'Hoàn thành': '已完成' },
+};
+
+function boardStatusPill(vnStatus) {
+  const zh = BOARD_ZH.status[vnStatus] || vnStatus || '—';
+  return `<span class="status-pill"><span class="status-dot ${STATUS_DOT[vnStatus] || ''}"></span>${esc(zh)}</span>`;
+}
+function boardDeadlineBadge(t) {
+  const diff = daysToDeadline(t);
+  if (diff === Infinity) return '';
+  if (diff < 0) return ` <span class="badge badge-danger">${BOARD_ZH.overdueDays(-diff)}</span>`;
+  if (diff === 0) return ` <span class="badge badge-warn">${BOARD_ZH.today}</span>`;
+  if (diff === 1) return ` <span class="badge badge-warn">${BOARD_ZH.tomorrow}</span>`;
+  return '';
+}
+function boardCard(t) {
+  const f = t.fields;
+  const mota = f[COLS.MO_TA_CHI_TIET];
+  return `
+    <div class="card">
+      <h3>${t.record_id}-${esc(f[COLS.TASK_NAME] || 'N/A')}</h3>
+      <div class="meta">${BOARD_ZH.sku}: ${esc(f[COLS.SKU]) || 'N/A'}</div>
+      <div class="meta">${icon('user', 14)}${BOARD_ZH.giao}: ${esc(userName(f[COLS.NGUOI_GIAO]))} → ${BOARD_ZH.thuc}: ${esc(userName(f[COLS.NGUOI_THUC_HIEN]))}</div>
+      <div class="meta">${icon('calendar', 14)}${BOARD_ZH.deadline}: ${fmtDate(f[COLS.DEADLINE])}${boardDeadlineBadge(t)} &nbsp;${boardStatusPill(f[COLS.TRANG_THAI])}</div>
+      ${mota ? `<div class="note">${esc(mota)}</div>` : ''}
+      ${attachmentsHtml(t)}
+    </div>`;
+}
+async function renderBoard() {
+  const all = await window.Api.getBoard();
+  const tasks = all.filter(t => t.fields[COLS.TRANG_THAI] !== STATUS.HOAN_THANH);
+  if (tasks.length === 0) { mainEl.innerHTML = `<div class="empty">${BOARD_ZH.empty}</div>`; return; }
+  tasks.sort((a, b) => daysToDeadline(a) - daysToDeadline(b));
+  const groups = [
+    { title: BOARD_ZH.grpOverdue, items: tasks.filter(t => daysToDeadline(t) < 0) },
+    { title: BOARD_ZH.grpToday, items: tasks.filter(t => [0, 1].includes(daysToDeadline(t))) },
+    { title: BOARD_ZH.grpUpcoming, items: tasks.filter(t => daysToDeadline(t) > 1) },
+  ];
+  mainEl.innerHTML = `<div class="hint" style="margin-bottom:12px;">${BOARD_ZH.hint}</div>` +
+    groups.filter(g => g.items.length).map(g => `<h3 class="group-title">${g.title} (${g.items.length})</h3>${grid(g.items.map(boardCard).join(''))}`).join('');
+}
+
+// Người chỉ có vai trò shenzhen (Shenzhen Team), không có vai trò thao tác nào = chỉ được xem.
+function isViewerOnly(roles) {
+  const hasWrite = roles.includes('sale') || roles.includes('media') || roles.includes('admin');
+  return !hasWrite && roles.includes('shenzhen');
+}
+
 function render() {
   // Rời form tạo task thì gỡ paste listener — tránh Ctrl+V ở tab khác âm thầm upload file.
   removePasteListener();
   if (state.embed) { renderEmbedCreate(); return; }
   const roles = state.roles;
+
+  // Người xem TQ: chỉ 1 tab bảng task chỉ-đọc (tiếng Trung), không có nhóm quản trị.
+  if (isViewerOnly(roles)) {
+    setNav([{ key: 'board', label: BOARD_ZH.tab }], []);
+    state.tab = 'board';
+    mainEl.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+    Promise.resolve(renderBoard()).catch(err => { mainEl.innerHTML = `<div class="error">${esc(err.message)}</div>`; });
+    // Tự làm mới mỗi 2 phút để thấy task mới mà không cần refresh tay (đặt 1 lần).
+    if (!window.__boardTimer) window.__boardTimer = setInterval(() => { renderBoard().catch(() => {}); }, 120000);
+    return;
+  }
+
   const tabs = [{ key: 'home', label: 'Hôm nay' }];
-  if (roles.includes('sale') || roles.includes('admin')) tabs.push({ key: 'create', label: 'Gửi task mới' });
+  // Giao task VN: Sale VN (+admin). Giao task TQ: Media VN (+admin). Admin thấy cả 2.
+  if (roles.includes('sale') || roles.includes('admin')) tabs.push({ key: 'create', label: 'Giao task VN' });
+  if (roles.includes('media') || roles.includes('admin')) tabs.push({ key: 'createMedia', label: 'Giao task TQ' });
   if (roles.includes('sale') || roles.includes('admin')) tabs.push({ key: 'sent', label: 'Task đã gửi' });
   if (roles.includes('sale') || roles.includes('admin')) tabs.push({ key: 'mediaCalendar', label: 'Lịch Media' });
   if (roles.includes('media') || roles.includes('admin')) tabs.push({ key: 'mine', label: 'Task của tôi' });
-  if (roles.includes('media')) tabs.push({ key: 'createMedia', label: 'Gửi task (Sale TQ)' });
   if (roles.includes('admin')) tabs.push({ key: 'pending', label: 'Task chờ gán' });
   tabs.push({ key: 'completed', label: 'Task đã làm' });
 
@@ -1598,16 +1669,22 @@ function showWelcomeModal(me) {
   if (localStorage.getItem('welcomeShownDate') === todayStr) return;
   localStorage.setItem('welcomeShownDate', todayStr);
 
+  // Người xem TQ (Shenzhen Team) chào bằng tiếng Trung; còn lại tiếng Việt như cũ.
+  const viewer = isViewerOnly(me.roles);
+  const greet = viewer ? `你好，${esc(me.name || '')}！` : `Chào ${esc(me.name || 'bạn')}!`;
+  const roleLabel = viewer ? 'Shenzhen Team' : highestRoleLabel(me.roles);
+  const startBtn = viewer ? '开始' : 'Bắt đầu';
+
   openModal({
     title: '',
     size: 'sm',
     bodyHtml: `
       <div class="welcome-body">
         <div class="welcome-avatar">${esc(initials(me.name))}</div>
-        <p class="welcome-name">Chào ${esc(me.name || 'bạn')}!</p>
-        <p class="welcome-role">${highestRoleLabel(me.roles)}</p>
+        <p class="welcome-name">${greet}</p>
+        <p class="welcome-role">${roleLabel}</p>
       </div>`,
-    footerHtml: `<button type="button" class="btn-primary" style="width:100%;justify-content:center;" data-modal-close>Bắt đầu</button>`,
+    footerHtml: `<button type="button" class="btn-primary" style="width:100%;justify-content:center;" data-modal-close>${startBtn}</button>`,
   });
 }
 
@@ -1619,7 +1696,8 @@ function showWelcomeModal(me) {
     state.embed = new URLSearchParams(window.location.search).get('embed') === '1';
     const me = await window.Api.getMe();
     if (me.roles.length === 0) {
-      mainEl.innerHTML = '<div class="error">Bạn chưa được thêm vào hệ thống. Vui lòng liên hệ admin.</div>';
+      // Đã ở trong tổ chức, đăng nhập được nhưng admin chưa gán vị trí (song ngữ cho cả người TQ).
+      mainEl.innerHTML = '<div class="empty">Bạn đang chờ admin cấp quyền truy cập.<br>您正在等待管理员授予访问权限。</div>';
       return;
     }
     state.roles = me.roles;
