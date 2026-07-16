@@ -133,7 +133,7 @@ function attachmentsHtml(t) {
 }
 
 const TAB_ICON = {
-  home: 'home', create: 'send', createMedia: 'send', sent: 'file', mine: 'check', pending: 'clock', mediaCalendar: 'calendar', board: 'file',
+  home: 'home', create: 'send', createMedia: 'send', sent: 'file', mine: 'check', pending: 'clock', mediaCalendar: 'calendar', board: 'file', vcal: 'calendar',
   completed: 'check', users: 'user', templates: 'template', uploads: 'paperclip', manageAll: 'settings',
 };
 
@@ -1581,6 +1581,124 @@ async function renderBoard() {
     groups.filter(g => g.items.length).map(g => `<h3 class="group-title">${g.title} (${g.items.length})</h3>${grid(g.items.map(boardCard).join(''))}`).join('');
 }
 
+// ─── Lịch (tiếng Trung, chỉ đọc) cho Shenzhen Team — cùng dạng "Lịch Media", dùng chung
+// dữ liệu bảng đã dịch (không cần thêm endpoint). Nhóm theo người thực hiện, tô đậm theo số
+// task chồng nhau/ngày (từ ngày giao tới deadline). ───
+let viewerCalMonthOffset = 0;
+const CAL_ZH = {
+  tab: '日历',
+  weekdays: ['日', '一', '二', '三', '四', '五', '六'],
+  hint: '颜色深浅表示每位处理人当天叠加的任务数（从派单日到截止日），越深表示当天同时进行的任务越多。点击格子里的数字查看当天任务，点击姓名查看其全部进行中任务。',
+  monthTitle: (y, m) => `${y}年${m}月`,
+  taskCount: (n) => `${n} 项任务`,
+  counts: (dc, dl, cc) => `等待中: ${dc} · 进行中: ${dl} · 待检查: ${cc}`,
+  empty: '暂无任务。',
+  noTaskDay: '当天没有任务。',
+  noTaskDetail: '没有进行中的任务。',
+};
+
+function groupByMedia(tasks) {
+  const by = {};
+  for (const t of tasks) {
+    const u = t.fields[COLS.NGUOI_THUC_HIEN] && t.fields[COLS.NGUOI_THUC_HIEN][0];
+    if (!u || !u.id) continue; // task chưa gán người thực hiện -> không lên lịch
+    if (!by[u.id]) by[u.id] = { id: u.id, name: u.name, tasks: [] };
+    by[u.id].tasks.push(t);
+  }
+  return Object.values(by).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function viewerDayTasks(m, dateKey) {
+  const [y, mo, da] = dateKey.split('-').map(Number);
+  return m.tasks.filter(t => {
+    const dl = t.fields[COLS.DEADLINE];
+    if (!dl) return false;
+    const end = new Date(Number(dl)); end.setHours(0, 0, 0, 0);
+    const start = t.created_at ? new Date(t.created_at) : new Date(end); start.setHours(0, 0, 0, 0);
+    const day = new Date(y, mo - 1, da);
+    return day >= start && day <= end;
+  });
+}
+function openViewerMemberModal(m) {
+  openModal({ title: esc(m.name), size: 'lg', bodyHtml: m.tasks.length ? grid(m.tasks.map(boardCard).join('')) : `<p class="modal-text">${CAL_ZH.noTaskDetail}</p>` });
+}
+function openViewerDayModal(m, dateKey) {
+  const inRange = viewerDayTasks(m, dateKey);
+  openModal({ title: `${esc(m.name)} — ${dateKey}`, size: 'lg', bodyHtml: inRange.length ? grid(inRange.map(boardCard).join('')) : `<p class="modal-text">${CAL_ZH.noTaskDay}</p>` });
+}
+
+async function renderViewerCalendar() {
+  const all = await window.Api.getBoard();
+  const active = all.filter(t => t.fields[COLS.TRANG_THAI] !== STATUS.HOAN_THANH);
+  const groups = groupByMedia(active);
+  if (groups.length === 0) { mainEl.innerHTML = `<div class="empty">${CAL_ZH.empty}</div>`; return; }
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const base = new Date(today.getFullYear(), today.getMonth() + viewerCalMonthOffset, 1);
+  const year = base.getFullYear();
+  const month = base.getMonth();
+  const gridStart = new Date(year, month, 1);
+  gridStart.setDate(gridStart.getDate() - gridStart.getDay());
+  const cellDates = Array.from({ length: 42 }, (_, i) => { const d = new Date(gridStart); d.setDate(d.getDate() + i); return d; });
+  const todayKey = localDateKey(today);
+  const canGoBack = viewerCalMonthOffset > -1;
+  const canGoForward = viewerCalMonthOffset < 0;
+
+  const tierStyle = (count) => {
+    if (count >= 3) return 'background:color-mix(in srgb, var(--accent) 60%, white); color:var(--accent-contrast); font-weight:700;';
+    if (count === 2) return 'background:color-mix(in srgb, var(--accent) 35%, white); color:var(--accent); font-weight:700;';
+    if (count === 1) return 'background:color-mix(in srgb, var(--accent) 15%, white); color:var(--accent); font-weight:600;';
+    return 'color:var(--text-muted);';
+  };
+  const weekdayHeader = CAL_ZH.weekdays.map(w => `<div style="text-align:center; font-size:11px; color:var(--text-muted); padding:2px 0;">${w}</div>`).join('');
+
+  mainEl.innerHTML = `
+    <div class="hint" style="margin-bottom:12px;">${CAL_ZH.hint}</div>
+    <div style="display:flex; align-items:center; justify-content:center; gap:12px; margin-bottom:14px;">
+      <button type="button" class="icon-btn" data-act="prev-month" ${canGoBack ? '' : 'disabled'} style="transform:rotate(90deg); ${canGoBack ? '' : 'opacity:.4; cursor:default;'}">${icon('chevron', 16)}</button>
+      <div style="font-weight:600;">${CAL_ZH.monthTitle(year, month + 1)}</div>
+      <button type="button" class="icon-btn" data-act="next-month" ${canGoForward ? '' : 'disabled'} style="transform:rotate(-90deg); ${canGoForward ? '' : 'opacity:.4; cursor:default;'}">${icon('chevron', 16)}</button>
+    </div>
+    ${grid(groups.map(m => {
+      const counts = { [STATUS.DANG_CHO]: 0, [STATUS.DANG_LAM]: 0, [STATUS.CHO_CHECK]: 0 };
+      const load = {};
+      for (const t of m.tasks) {
+        const st = t.fields[COLS.TRANG_THAI];
+        if (st in counts) counts[st] += 1;
+        const dl = t.fields[COLS.DEADLINE];
+        if (!dl) continue;
+        const end = new Date(Number(dl)); end.setHours(0, 0, 0, 0);
+        const start = t.created_at ? new Date(t.created_at) : new Date(end); start.setHours(0, 0, 0, 0);
+        if (start > end) continue;
+        const cur = new Date(start);
+        while (cur <= end) { const key = localDateKey(cur); load[key] = (load[key] || 0) + 1; cur.setDate(cur.getDate() + 1); }
+      }
+      const cellsHtml = cellDates.map(d => {
+        const inMonth = d.getMonth() === month;
+        const key = localDateKey(d);
+        const count = load[key] || 0;
+        const todayOutline = key === todayKey ? 'outline:1px solid var(--accent); outline-offset:-1px;' : '';
+        const clickable = inMonth && count > 0;
+        return `<div ${clickable ? `class="clickable" data-act="show-day" data-day="${key}"` : ''} style="opacity:${inMonth ? '1' : '.35'}; text-align:center; padding:5px 2px; border-radius:6px; font-size:11.5px; ${tierStyle(count)} ${todayOutline} ${clickable ? 'cursor:pointer;' : ''}">
+          <div>${d.getDate()}</div><div>${count || ''}</div></div>`;
+      }).join('');
+      return `
+        <div class="card" data-id="${esc(m.id)}">
+          <h3 class="clickable" data-act="show-detail">${esc(m.name)}</h3>
+          <div class="meta"><b>${CAL_ZH.taskCount(m.tasks.length)}</b>&nbsp;— ${CAL_ZH.counts(counts[STATUS.DANG_CHO], counts[STATUS.DANG_LAM], counts[STATUS.CHO_CHECK])}</div>
+          <div style="display:grid; grid-template-columns:repeat(7,1fr); gap:3px; margin-top:8px;">${weekdayHeader}${cellsHtml}</div>
+        </div>`;
+    }).join(''))}`;
+
+  mainEl.querySelector('[data-act="prev-month"]')?.addEventListener('click', () => { if (!canGoBack) return; viewerCalMonthOffset -= 1; renderViewerCalendar(); });
+  mainEl.querySelector('[data-act="next-month"]')?.addEventListener('click', () => { if (!canGoForward) return; viewerCalMonthOffset += 1; renderViewerCalendar(); });
+  mainEl.querySelectorAll('.card[data-id]').forEach(card => {
+    const m = groups.find(x => x.id === card.dataset.id);
+    card.querySelector('[data-act="show-detail"]').onclick = () => openViewerMemberModal(m);
+    card.querySelectorAll('[data-act="show-day"]').forEach(cell => { cell.onclick = () => openViewerDayModal(m, cell.dataset.day); });
+  });
+}
+
 // Người chỉ có vai trò shenzhen (Shenzhen Team), không có vai trò thao tác nào = chỉ được xem.
 function isViewerOnly(roles) {
   const hasWrite = roles.includes('sale') || roles.includes('media') || roles.includes('admin');
@@ -1593,14 +1711,16 @@ function render() {
   if (state.embed) { renderEmbedCreate(); return; }
   const roles = state.roles;
 
-  // Người xem TQ: chỉ 1 tab bảng task chỉ-đọc (tiếng Trung), không có nhóm quản trị.
+  // Người xem TQ: 2 tab chỉ-đọc (Bảng task + Lịch), tiếng Trung, không có nhóm quản trị.
   if (isViewerOnly(roles)) {
-    setNav([{ key: 'board', label: BOARD_ZH.tab }], []);
-    state.tab = 'board';
+    const vtabs = [{ key: 'board', label: BOARD_ZH.tab }, { key: 'vcal', label: CAL_ZH.tab }];
+    if (!vtabs.some(t => t.key === state.tab)) state.tab = 'board';
+    setNav(vtabs, []);
+    const renderCur = () => (state.tab === 'vcal' ? renderViewerCalendar() : renderBoard());
     mainEl.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-    Promise.resolve(renderBoard()).catch(err => { mainEl.innerHTML = `<div class="error">${esc(err.message)}</div>`; });
-    // Tự làm mới mỗi 2 phút để thấy task mới mà không cần refresh tay (đặt 1 lần).
-    if (!window.__boardTimer) window.__boardTimer = setInterval(() => { renderBoard().catch(() => {}); }, 120000);
+    Promise.resolve(renderCur()).catch(err => { mainEl.innerHTML = `<div class="error">${esc(err.message)}</div>`; });
+    // Tự làm mới tab đang xem mỗi 2 phút để thấy task mới mà không cần refresh tay (đặt 1 lần).
+    if (!window.__boardTimer) window.__boardTimer = setInterval(() => { renderCur().catch(() => {}); }, 120000);
     return;
   }
 
