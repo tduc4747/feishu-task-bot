@@ -117,10 +117,12 @@ function attachmentsHtml(t) {
   const thumbs = imgs.map(a =>
     `<a href="${esc(a.url)}" target="_blank" rel="noopener" title="${esc(a.name || '')}"><img class="thumb" src="${esc(a.url)}" alt="${esc(a.name || 'ảnh')}" loading="lazy"></a>`).join('');
 
+  // download="tên gốc": file lưu trên đĩa bằng tên ngẫu nhiên, nhưng tải về giữ ĐÚNG tên gốc
+  // (cùng origin nên trình duyệt tôn trọng thuộc tính này) để dễ tìm lại file.
   const fileLink = (a, i) => {
     const n = a.name || `File ${i + 1}`;
     const s = n.length > 28 ? n.slice(0, 25) + '…' : n;
-    return `<a href="${esc(a.url)}" target="_blank" rel="noopener" title="${esc(a.name || '')}">${esc(s)}</a>`;
+    return `<a href="${esc(a.url)}" download="${esc(a.name || '')}" rel="noopener" title="${esc(a.name || '')}">${esc(s)}</a>`;
   };
   const shown = files.slice(0, 2);
   const extra = files.slice(2);
